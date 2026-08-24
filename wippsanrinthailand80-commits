@@ -1,0 +1,18 @@
+# wippsanrinthailand80-commits
+
+This file marks the Red Daft OS project upload for the account
+**wippsanrinthailand80-commits**.
+
+## Red Daft OS
+A coder-/security-first Linux distribution for red-teamers, security engineers,
+AI developers, and power users. 100% free and open-source.
+
+Highlights: hardened Daft-Kernel, `daft-pkg` native package manager, `.deb`
+adapter, local AI (Ollama + Qwen), defensive `daft-ai-guard`, in-RAM
+`daft-shell`, AMD ROCm support, and crimson/matte-black branding.
+
+> Responsible use: all offensive capability is transparent, labeled, and
+> authorization-gated. The kernel is hardened (not stealth) and ships a
+> defensive rootkit/DKOM detector. The AI guard blocks weaponized content.
+
+Full sources: see the rest of this repository.
