@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# rocm-smi.daftspec — ROCm System Management Interface (monitoring).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=amd-common.sh
+source "$HERE/amd-common.sh"
+DEBS=(rocm-smi rocm-smi-lib)
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
+add_amd_repo "$ROOT"
+if [[ "${1:-}" == "check" ]]; then check_debs "$WORK" "${DEBS[@]}";
+else stage_debs "$ROOT" "${DEBS[@]}"; build_daft "$WORK" rocm-smi "$ROCM_VER"; fi

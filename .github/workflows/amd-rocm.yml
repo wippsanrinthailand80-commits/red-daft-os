@@ -1,0 +1,45 @@
+name: amd-rocm
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  amd-rocm-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spec:
+          - amdgpu-dkms
+          - rocm-runtime
+          - rocblas
+          - miopen
+          - rocm-smi
+          - rocm-dev
+          - pytorch-rocm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install apt helpers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl gpg dpkg-dev apt-transport-https
+
+      - name: Validate ${{ matrix.spec }} resolves from AMD ROCm repo
+        run: |
+          bash "packages/specs/amd/${{ matrix.spec }}.daftspec" check
+
+  amd-rocm-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test ROCm userspace (rocm-smi)
+        run: |
+          curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
+            | gpg --dearmor -o /tmp/amd-rocm.gpg
+          echo "deb [arch=amd64] https://repo.radeon.com/rocm/apt/6.2 jammy main" \
+            | sudo tee /etc/apt/sources.list.d/amd-rocm.list
+          sudo apt-get update
+          sudo apt-get install -y rocm-smi
+          rocm-smi --version && echo "ROCm userspace install OK"

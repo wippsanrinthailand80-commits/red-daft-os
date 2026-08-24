@@ -1,0 +1,39 @@
+# build/configs/kernel-config.x86_64  (HARDENED Daft-Kernel fragment)
+#
+# This is a KSPP-aligned hardening fragment, NOT a rootkit config.
+# Apply on top of a base defconfig:  scripts/kconfig/merge_config.sh \
+#   arch/x86/configs/x86_64_defconfig build/configs/kernel-config.x86_64
+#
+# Defensive posture: make the kernel resistant to the very primitives the
+# original spec described (DKOM, covert channels, unauthorized memory patching).
+CONFIG_CC_STACKPROTECTOR_STRONG=y
+CONFIG_STACKPROTECTOR=y
+CONFIG_SLUB_DEBUG=y
+CONFIG_PAGE_POISONING=y
+CONFIG_SCHED_STACK_END_CHECK=y
+CONFIG_STRICT_KERNEL_RWX=y
+CONFIG_STRICT_MODULE_RWX=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_RANDOMIZE_MEMORY=y
+CONFIG_INIT_STACK_ALL_ZERO=y
+CONFIG_GCC_PLUGIN_LATENT_ENTROPY=y
+CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF_ALL=y
+CONFIG_GCC_PLUGIN_RANDSTRUCT=y
+CONFIG_STATIC_USERMODEHELPER=y
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_SECURITY_YAMA=y
+CONFIG_SECURITY_LOCKDOWN_LSM=y
+CONFIG_SECURITY_LOCKDOWN_LSM_EARLY=y
+CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y
+CONFIG_HARDENED_USERCOPY=y
+CONFIG_FORTIFY_SOURCE=y
+CONFIG_MODULE_SIG=y
+CONFIG_MODULE_SIG_ALL=y
+CONFIG_MODULE_SIG_FORCE=y
+# Live, unauthorized memory patching (e.g. via /dev/kmem) is DISABLED:
+CONFIG_DEVKMEM=n
+CONFIG_STRICT_DEVMEM=y
+CONFIG_IO_STRICT_DEVMEM=y
+# Covert-channel / raw hidden sockets remain available ONLY via explicit,
+# logged, root-gated LSM policy — not silently. See docs/ARCHITECTURE.md.

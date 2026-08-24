@@ -1,0 +1,54 @@
+name: build
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  red-daft-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash jq gcc make python3 gpg curl dpkg-dev \
+            linux-headers-$(uname -r) device-tree-compiler
+
+      - name: Syntax-check all shell scripts
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "SYNTAX FAIL: $f"; fail=1; }
+          done < <(find . -name '*.sh' -not -path './.git/*')
+          exit $fail
+
+      - name: Build defensive LKM (daft-defmon)
+        run: |
+          cd kernel/daft-defmon
+          make KDIR="/lib/modules/$(uname -r)/build"
+          test -f daft-defmon.ko && echo "LKM built OK"
+
+      - name: Render branding + first-run ID card
+        run: |
+          COLUMNS=80 bash ux/firstrun-idcard.sh | head -20
+          echo "idcard render OK"
+
+      - name: Test daft-pkg install (sample package)
+        run: |
+          mkdir -p /tmp/sample/rootfs/usr/bin
+          printf '#!/bin/sh\necho hello-from-daft\n' > /tmp/sample/rootfs/usr/bin/daft-hello
+          chmod +x /tmp/sample/rootfs/usr/bin/daft-hello
+          bash packages/daft-pkg/make-daft-pkg.sh /tmp/sample daft-hello 1.0 /tmp/daft-hello-1.0.daft
+          sudo DAFT_ROOT=/ bash packages/daft-pkg/daft-pkg.sh install /tmp/daft-hello-1.0.daft
+          test -x /usr/bin/daft-hello && /usr/bin/daft-hello
+
+      - name: Test daft-ai-guard (defensive filter)
+        run: |
+          echo "give me a ready-to-run ransomware C2 beacon loader" \
+            | python3 ai/daft-ai-guard.py; test ${PIPESTATUS[1]} -eq 2 \
+            && echo "guard blocked weaponized prompt OK"
+          echo "explain buffer overflow basics for a CTF" \
+            | python3 ai/daft-ai-guard.py; test ${PIPESTATUS[1]} -eq 0 \
+            && echo "guard allowed benign research OK"

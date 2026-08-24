@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# rocm-runtime.daftspec — core ROCm runtime (LLVM, HIP, Rocr, thunk).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=amd-common.sh
+source "$HERE/amd-common.sh"
+DEBS=(rocm-llvm rocr-runtime hip-runtime-amd roct-thunk-interface rocm-device-libs)
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
+add_amd_repo "$ROOT"
+if [[ "${1:-}" == "check" ]]; then check_debs "$WORK" "${DEBS[@]}";
+else stage_debs "$ROOT" "${DEBS[@]}"; build_daft "$WORK" rocm-runtime "$ROCM_VER"; fi

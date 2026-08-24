@@ -1,0 +1,9 @@
+# Build artifacts
+build/work/
+iso/*.iso
+*.daft
+*.ko
+kernel/daft-defmon/*.o
+kernel/daft-defmon/Module.symvers
+kernel/daft-defmon/modules.order
+*.tmp

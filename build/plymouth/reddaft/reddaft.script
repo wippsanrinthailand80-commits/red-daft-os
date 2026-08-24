@@ -1,0 +1,36 @@
+# build/plymouth/reddaft/reddaft.script
+# Red Daft OS boot splash — crimson progress bar on matte black.
+# Uses Plymouth's "script" plugin (no external image asset required).
+
+status = 0
+
+function refresh_callback()
+    w = Window.GetWidth()
+    h = Window.GetHeight()
+
+    # matte-black background
+    bg = Rectangle(0, 0, w, h)
+    bg.SetFillColor(12, 12, 12, 1)
+
+    # crimson progress bar (FF0033)
+    bar_w = w * 0.6
+    bar = Rectangle((w - bar_w) / 2, h * 0.72, bar_w * status, 8)
+    bar.SetFillColor(255, 0, 51, 1)
+
+    # title text
+    t = Text("RED DAFT OS")
+    t.SetColor(255, 0, 51, 1)
+    t.SetPosition(w / 2 - t.GetWidth() / 2, h * 0.4)
+end
+
+function boot_progress(progress, time)
+    status = progress
+    refresh_callback()
+end
+
+Plymouth.SetRefreshFunction(refresh_callback)
+Plymouth.SetBootProgressFunction(boot_progress)
+Plymouth.SetRootMountedFunction(function()
+    status = 1
+    refresh_callback()
+end)

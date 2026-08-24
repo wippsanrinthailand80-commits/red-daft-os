@@ -1,0 +1,5 @@
+# build/plymouth/reddaft/reddaft.plymouth
+[Plymouth Theme]
+Name=Red Daft
+Description=Red Daft OS crimson boot splash (script plugin)
+ModuleInitScript=reddaft.script

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# specs/cuda-toolkit.daftspec — bundle NVIDIA CUDA drivers/runtime as .daft.
+# Strategy: pull the runfile/local repo into the rootfs; kernel DMA mapping is
+# handled by the Daft-Kernel (see build/configs). Requires a GPU present at build.
+set -euo pipefail
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"
+mkdir -p "$ROOT/opt/daft/cuda"
+
+CUDA_VER="${CUDA_VER:-12.4}"
+echo "[*] staging CUDA $CUDA_VER meta-layer"
+
+cat > "$ROOT/opt/daft/cuda/README" <<EOF
+Red Daft CUDA layer ($CUDA_VER).
+Install the vendor runfile or apt meta-package on first boot:
+  daft-deb add nvidia-driver-550
+  daft-deb add nvidia-cuda-toolkit
+Kernel DMA/peer-memory support is enabled via Daft-Kernel config.
+EOF
+
+"$(dirname "$0")/../daft-pkg/make-daft-pkg.sh" "$WORK" cuda-toolkit "$CUDA_VER" "cuda-toolkit-$CUDA_VER.daft"

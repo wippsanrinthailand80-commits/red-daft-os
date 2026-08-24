@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# specs/vscodium.daftspec — package VSCodium as a .daft archive.
+# Downloads the official FOSS VSCodium build and bundles it under /opt/daft/apps.
+set -euo pipefail
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"
+mkdir -p "$ROOT/opt/daft/apps/vscodium"
+
+ARCH="$(uname -m)"
+URL="https://github.com/VSCodium/vscodium/releases/latest/download/VSCodium-linux-${ARCH}-stable.tar.gz"
+echo "[*] fetching VSCodium ($URL)"
+curl -fsSL "$URL" | tar -xz -C "$ROOT/opt/daft/apps/vscodium"
+
+# Launcher
+mkdir -p "$ROOT/usr/local/bin"
+cat > "$ROOT/usr/local/bin/vscodium" <<'EOF'
+#!/usr/bin/env bash
+exec /opt/daft/apps/vscodium/codium "$@"
+EOF
+chmod +x "$ROOT/usr/local/bin/vscodium"
+
+VERSION="$(cat "$ROOT/opt/daft/apps/vscodium/version" 2>/dev/null || echo stable)"
+"$(dirname "$0")/../daft-pkg/make-daft-pkg.sh" "$WORK" vscodium "$VERSION" "vscodium-$VERSION.daft"

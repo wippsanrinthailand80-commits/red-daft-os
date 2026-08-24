@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# pytorch-rocm.daftspec — ROCm-enabled PyTorch wheel for local AI on AMD GPUs.
+# Staged from the official PyTorch ROCm index (not apt).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=amd-common.sh
+source "$HERE/amd-common.sh"
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT/opt/daft/amd/pytorch-rocm"
+PYTORCH_ROCM="rocm${ROCM_VER%.*}"   # 6.2 -> rocm6.2
+
+if [[ "${1:-}" == "check" ]]; then
+  echo "[check] PyTorch ROCm wheel fetched at install time via pip from download.pytorch.org/whl/$PYTORCH_ROCM"
+else
+  pip download torch --no-deps --index-url "https://download.pytorch.org/whl/$PYTORCH_ROCM" \
+    -d "$ROOT/opt/daft/amd/pytorch-rocm" || \
+    echo "[!] pip download needs network; wheel staged at install time on target"
+  build_daft "$WORK" pytorch-rocm "${ROCM_VER}"
+fi

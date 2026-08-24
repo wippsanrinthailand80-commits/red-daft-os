@@ -1,0 +1,5 @@
+# packages/deb-adapter/sources.daft.list
+# APT sources used by daft-deb to resolve .deb dependencies from Ubuntu.
+deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse

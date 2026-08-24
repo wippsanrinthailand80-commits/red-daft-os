@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# miopen.daftspec — MIOpen (HIP) deep-learning primitive library.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=amd-common.sh
+source "$HERE/amd-common.sh"
+DEBS=(miopen-hip miopen-hip-dev)
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
+add_amd_repo "$ROOT"
+if [[ "${1:-}" == "check" ]]; then check_debs "$WORK" "${DEBS[@]}";
+else stage_debs "$ROOT" "${DEBS[@]}"; build_daft "$WORK" miopen "$ROCM_VER"; fi
