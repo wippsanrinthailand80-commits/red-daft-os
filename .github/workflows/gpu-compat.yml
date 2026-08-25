@@ -83,7 +83,7 @@ jobs:
           Pin-Priority: 1001
           EOF
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends hipcc
+          sudo apt-get install -y --no-install-recommends hipcc rocm-device-libs comgr
       - name: Compile for gfx90a (MI200) and gfx1100 (RX 7900 XTX)
         run: |
           HIPCC=$(find /opt/rocm* /usr -name hipcc -type f 2>/dev/null | head -1)
@@ -118,7 +118,7 @@ jobs:
           sudo mmdebstrap --keyring=/usr/share/keyrings/debian-archive-keyring.gpg --variant=minbase --arch=amd64 --include="libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,ocl-icd-libopencl1,pocl-opencl-icd,clinfo,pciutils,nvtop,firmware-linux-nonfree" bookworm /tmp/rfs "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
       - name: Score fallback layer (FALLBACK must be 25/25)
         run: |
-          bash packages/gpu/check-compat.sh /tmp/rfs --min 28
-          OUT=$(bash packages/gpu/check-compat.sh /tmp/rfs)
-          echo "$OUT"
-          echo "$OUT" | grep -q "FALLBACK 25/25" || { echo "FAIL: fallback layer incomplete"; exit 1; }
+          # --min 28: this rootfs intentionally has no kernel config or compute
+          # stacks; the gate is that the software-fallback layer is complete.
+          bash packages/gpu/check-compat.sh /tmp/rfs --min 28 | tee /tmp/score.txt
+          grep -q "FALLBACK 25/25" /tmp/score.txt || { echo "FAIL: fallback layer incomplete"; exit 1; }
