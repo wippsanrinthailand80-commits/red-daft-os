@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Red Daft ID Card
+Comment=Generate your Red Daft OS identity card
+Exec=sudo /usr/local/bin/daft-firstrun
+Icon=avatar-default
+Terminal=true
+Type=Application
+Categories=System;

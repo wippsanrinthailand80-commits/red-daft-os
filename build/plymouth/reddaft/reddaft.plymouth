@@ -2,4 +2,5 @@
 [Plymouth Theme]
 Name=Red Daft
 Description=Red Daft OS crimson boot splash (script plugin)
+ModuleName=script
 ModuleInitScript=reddaft.script

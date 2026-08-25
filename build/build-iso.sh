@@ -43,7 +43,7 @@ stage_bootstrap() {
   echo "[*] bootstrapping Ubuntu noble ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
-    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal" \
+    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,arc-theme,papirus-icon-theme,git,curl,wget,plymouth,plymouth-theme-script,plymouth-label" \
     --keyring="$KEYRING" \
     noble "$ROOTFS" \
     "deb $MIRROR noble main restricted universe" \
@@ -90,9 +90,10 @@ OSR
     <property name="screen0" type="empty">
       <property name="monitor0" type="empty">
         <property name="workspace0" type="empty">
+          <property name="image-style" type="int" value="5"/>
+          <property name="last-image" type="string" value="/usr/share/backgrounds/reddaft.png"/>
           <property name="color-style" type="int" value="0"/>
           <property name="color1" type="array" value="65535;0;13056;65535"/>
-          <property name="color2" type="array" value="0;0;0;65535"/>
         </property>
       </property>
     </property>
@@ -126,6 +127,49 @@ Type=Application
 Categories=System;
 X-GNOME-Autostart-enabled=true
 DW
+
+  echo "[*] crimson wallpaper asset"
+  install -Dm644 build/assets/reddaft-wallpaper.png "$ROOTFS/usr/share/backgrounds/reddaft.png"
+
+  echo "[*] XFCE dark/crimson theme (Arc-Dark + Papirus) for agent"
+  local XC="$ROOTFS/home/agent/.config/xfce4/xfconf/xfce-perchannel-xml"
+  mkdir -p "$XC"
+  cat > "$XC/xsettings.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xsettings" version="1.0">
+  <property name="Net" type="empty">
+    <property name="ThemeName" type="string" value="Arc-Dark"/>
+    <property name="IconThemeName" type="string" value="Papirus"/>
+  </property>
+  <property name="Gtk" type="empty">
+    <property name="FontName" type="string" value="Sans 11"/>
+    <property name="MonospaceFontName" type="string" value="Monospace 11"/>
+  </property>
+</channel>
+XML
+  cat > "$XC/xfwm4.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="theme" type="string" value="Arc"/>
+  </property>
+</channel>
+XML
+  chroot "$ROOTFS" chown -R agent:agent /home/agent/.config
+
+  echo "[*] load defensive LKM (daft-defmon) at boot"
+  install -Dm755 kernel/daft-defmon/detect-hidden.sh "$ROOTFS/usr/local/bin/daft-defmon-detect" 2>/dev/null || true
+  echo "daft-defmon" > "$ROOTFS/etc/modules-load.d/daft-defmon.conf"
+
+  echo "[*] AI guard proxy (guarded Ollama on :11435) enabled"
+  install -Dm755 ai/daft-ai-guard-proxy.py "$ROOTFS/usr/local/bin/daft-ai-guard-proxy.py"
+  install -Dm644 ai/daft-ai-guard.service "$ROOTFS/etc/systemd/system/daft-ai-guard.service"
+  chroot "$ROOTFS" systemctl enable daft-ai-guard.service 2>/dev/null || \
+    ln -sf /etc/systemd/system/daft-ai-guard.service \
+          "$ROOTFS/etc/systemd/system/multi-user.target.wants/daft-ai-guard.service"
+
+  echo "[*] desktop launchers (installer + ID card)"
+  install -Dm644 ux/daft-idcard.desktop "$ROOTFS/usr/share/applications/daft-idcard.desktop"
 
   echo "[*] MOTD"
   chroot "$ROOTFS" bash /opt/daft/ux/setup-motd.sh / 2>/dev/null || \
@@ -174,10 +218,13 @@ D
 stage_kernel() {
   echo "[*] building defensive LKM (daft-defmon)"
   local kh; kh="$(ls -d "$ROOTFS/lib/modules"/*/build 2>/dev/null | head -1 || true)"
+  local kv; kv="$(ls -d "$ROOTFS/lib/modules"/*/ 2>/dev/null | head -1 || true)"
+  kv="${kv%/}"; kv="${kv##*/}"
   if [[ -n "$kh" ]]; then
     ( cd kernel/daft-defmon && make KDIR="$kh" ) && \
-      install -Dm644 kernel/daft-defmon/daft-defmon.ko "$ROOTFS/usr/lib/modules/extra/daft-defmon.ko" \
-      || echo "[!] LKM build skipped"
+      install -Dm644 kernel/daft-defmon/daft-defmon.ko "$ROOTFS/lib/modules/$kv/extra/daft-defmon.ko" \
+      && chroot "$ROOTFS" depmod -a "$kv" \
+      || echo "[!] LKM build/install skipped"
   else
     echo "[!] no kernel headers in rootfs; LKM not built"
   fi
@@ -189,9 +236,15 @@ stage_initramfs() {
   ls "$ROOTFS/boot"/initrd.img-* >/dev/null 2>&1 || echo "[!] no initrd produced"
 }
 
+gen_assets() {
+  echo "[*] generating brand assets"
+  python3 "$(pwd)/build/gen-assets.py" "$(pwd)/build/assets"
+}
+
 stage_iso() {
   echo "[*] assembling live ISO via GRUB + casper"
   mkdir -p "$ISO_SRC/casper" "$ISO_SRC/boot/grub"
+  cp build/assets/reddaft-bg.png "$ISO_SRC/boot/grub/reddaft-bg.png"
   local kv; kv="$(ls "$ROOTFS/boot"/vmlinuz-* | head -1)"
   local ir; ir="$(ls "$ROOTFS/boot"/initrd.img-* | head -1)"
   cp "$kv" "$ISO_SRC/casper/vmlinuz"
@@ -202,6 +255,8 @@ set timeout=10
 set default=0
 insmod all_video
 insmod gfxterm
+insmod png
+background_image /boot/grub/reddaft-bg.png
 set color_normal=white/black
 set color_highlight=red/black
 set menu_color_normal=white/black
@@ -222,6 +277,7 @@ EOF
 
 mkdir -p "$WORK" "$(pwd)/iso"
 stage_bootstrap
+gen_assets
 stage_configure
 stage_kernel
 stage_initramfs

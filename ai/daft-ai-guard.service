@@ -1,0 +1,14 @@
+[Unit]
+Description=Red Daft OS AI guard proxy (Ollama 11434 -> guarded 11435)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/daft-ai-guard-proxy.py
+Restart=on-failure
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
