@@ -19,6 +19,7 @@ AI developers, and power users. 100% free and open-source.
 - **daft-shell** — in-RAM C/Python execution (TCC).
 - **AMD ROCm support** — `.daft` specs for the full ROCm stack (see below).
 - **NVIDIA CUDA support** — `.daft` specs for CUDA drivers, toolkit, cuDNN, TensorRT.
+- **GPU-ready everywhere** — drivers compiled in even without hardware, software fallbacks, `daft-gpu`/`daft-compat` tooling (see below).
 - **Branding** — crimson `#FF0033` / matte-black theme, ASCII logo, MOTD, Plymouth splash.
 
 ## System requirements
@@ -59,6 +60,44 @@ daft-pkg install ./foo.daft       # install a local .daft archive
 daft-deb add <pkg.deb>            # install an Ubuntu .deb (deps resolved)
 make-daft-pkg.sh <pkgdir> <name> <version> [out.daft]   # build a .daft
 ```
+
+## GPU compatibility (with or without hardware)
+
+Red Daft OS is built to be **GPU-ready on every machine**: drivers are compiled
+in even where no card exists (they simply never probe), and a software
+fallback (llvmpipe GL, lavapipe Vulkan, PoCL OpenCL) keeps every app running
+on GPU-less systems. Measure it any time:
+
+```bash
+daft-gpu status          # what was detected + which mode is active
+daft-compat              # capability score out of 100 (CI-enforced >= threshold)
+```
+
+### Supported cards
+
+| Tier | Cards | Path |
+|---|---|---|
+| **NVIDIA Blackwell** | RTX 50xx (`sm_120`) | nvidia-open 570+, CUDA ≥ 12.8 (default track: 12.9) |
+| **NVIDIA Ada / Ampere** | RTX 4090 (`sm_89`), RTX 3090 (`sm_86`) | nvidia-open/GSP + CUDA |
+| **AMD RDNA4** | RX 9000 series | amdgpu + DCN (recent kernel + linux-firmware) |
+| **AMD RDNA3** | RX 7900 XTX (`gfx1100`) | amdgpu + ROCm compute |
+| **AMD RDNA1/2** | RX 5000/6000 | amdgpu; Vulkan via Mesa RADV |
+| **AMD GCN4-5** | RX 400/500, Vega, Radeon VII | amdgpu native; Mesa RADV/OpenCL |
+| **AMD GCN1-2** | R9 270X/280X-class | amdgpu SI/CIK (experimental tier) |
+| **Pre-GCN** | HD 2000-6000 | legacy `radeon` driver |
+
+Compute-stack support narrows on old silicon: ROCm targets `gfx90a+`
+(MI200/MI300) and `gfx1100+`; Polaris-and-older gets display + Vulkan +
+Mesa OpenCL — not ROCm. That is upstream reality, not a Red Daft gap.
+
+### How compatibility is validated without hardware
+`.github/workflows/gpu-compat.yml` runs on every push:
+1. resolves our hardened fragment against real kernel Kconfig (catches
+   silently-dropped options) and enforces kernel readiness ≥ 33/35;
+2. compiles CUDA for `sm_86`/`sm_89`/`sm_120` headlessly via nvcc;
+3. compiles HIP for `gfx90a` (MI200) and `gfx1100` (RX 7900 XTX);
+4. bootstraps a bookworm rootfs with the fallback set and enforces
+   FALLBACK 25/25 in the scorer.
 
 ## AMD / ROCm packages
 Specs under `packages/specs/amd/` build `.daft` archives for AMD GPUs:

@@ -1,0 +1,112 @@
+name: gpu-compat
+# Hardware-free GPU compatibility validation for Red Daft OS.
+# Targets: RTX 3090/4090/5090 (sm_86/sm_89/sm_120), RX 7900 XTX (gfx1100),
+# MI200/MI300 (gfx90a/gfx942).
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Prove every kernel GPU option survives olddefconfig ────────────
+  # A fragment line that kconfig silently drops is a compatibility bug you
+  # only discover on real hardware — unless CI catches it.
+  kernel-kconfig:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve hardened fragment against real kernel Kconfig
+        run: |
+          sudo apt-get update && sudo apt-get install -y xz-utils curl bc bison flex libelf-dev
+          curl -fSL --retry 3 \
+            https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_VER:-7.1.10}.tar.xz \
+            | tar -xJ
+          make -C linux-* O="$PWD/out" defconfig
+          cat build/configs/kernel-config.x86_64 >> out/.config
+          make -C linux-* O="$PWD/out" olddefconfig
+      - name: Score kernel GPU readiness (min 33/35)
+        run: bash packages/gpu/check-compat.sh --config-only out/.config --min 33
+
+  # ── 2. NVIDIA toolchain compiles for 3090/4090/5090 without a GPU ─────
+  cuda-headless:
+    runs-on: ubuntu-latest
+    env:
+      CUDA_VER: "12-9"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nvcc ${{ env.CUDA_VER }}
+        run: |
+          echo "deb [arch=amd64 trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64 /" \
+            | sudo tee /etc/apt/sources.list.d/nvidia-cuda.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-nvcc-${CUDA_VER}
+      - name: Compile for sm_86 (3090), sm_89 (4090), sm_120 (5090)
+        run: |
+          NVCC=/usr/local/cuda/bin/nvcc
+          CUOBJDUMP=/usr/local/cuda/bin/cuobjdump
+          cat > /tmp/t.cu <<'EOF'
+          __global__ void axpy(float a, const float* x, float* y, int n) {
+            int i = blockIdx.x * blockDim.x + threadIdx.x;
+            if (i < n) y[i] = a * x[i] + y[i];
+          }
+          int main() { return 0; }
+          EOF
+          rc=0
+          for arch in sm_86 sm_89 sm_120; do
+            if $NVCC -arch=$arch /tmp/t.cu -o /tmp/t_$arch 2>/tmp/err_$arch; then
+              echo "OK  $arch"
+              $CUOBJDUMP -sass /tmp/t_$arch >/dev/null || true
+            else
+              echo "FAIL $arch"; sed 's/^/     /' /tmp/err_$arch; rc=1
+            fi
+          done
+          exit $rc
+
+  # ── 3. ROCm/HIP compiler produces code objects for CDNA3/RDNA3 ────────
+  rocm-headless:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HIP toolchain from AMD repo
+        run: |
+          echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/rocm/apt/6.2 noble main" \
+            | sudo tee /etc/apt/sources.list.d/amd-rocm.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends hipcc rocm-device-libs comgr
+      - name: Compile for gfx90a (MI200) and gfx1100 (RX 7900 XTX)
+        run: |
+          HIPCC=$(ls /opt/rocm*/bin/hipcc | head -1)
+          cat > /tmp/t.hip <<'EOF'
+          __global__ void scale(float* v, float s, int n) {
+            int i = blockIdx.x * blockDim.x + threadIdx.x;
+            if (i < n) v[i] *= s;
+          }
+          EOF
+          rc=0
+          for gfx in gfx90a gfx1100; do
+            if "$HIPCC" --offload-arch=$gfx -c /tmp/t.hip -o /tmp/t_$gfx.o 2>/tmp/herr_$gfx; then
+              echo "OK  $gfx"
+            else
+              echo "FAIL $gfx"; sed 's/^/     /' /tmp/herr_$gfx; rc=1
+            fi
+          done
+          exit $rc
+
+  # ── 4. Software-fallback set installs clean on Debian bookworm ────────
+  fallback-rootfs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap minimal rootfs with fallback stack
+        run: |
+          sudo apt-get update && sudo apt-get install -y mmdebstrap
+          sudo mmdebstrap --variant=minbase --arch=amd64 --include="libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,ocl-icd-libopencl1,pocl-opencl-icd,clinfo,pciutils,nvtop,firmware-linux-nonfree" bookworm /tmp/rfs "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
+      - name: Score fallback layer (FALLBACK must be 25/25)
+        run: |
+          bash packages/gpu/check-compat.sh /tmp/rfs --min 28
+          OUT=$(bash packages/gpu/check-compat.sh /tmp/rfs)
+          echo "$OUT"
+          echo "$OUT" | grep -q "FALLBACK 25/25" || { echo "FAIL: fallback layer incomplete"; exit 1; }

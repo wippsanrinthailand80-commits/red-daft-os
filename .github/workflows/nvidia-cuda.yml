@@ -39,5 +39,5 @@ jobs:
           echo "deb [arch=amd64 trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64 /" \
             | sudo tee /etc/apt/sources.list.d/nvidia-cuda.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cuda-nvcc-12-6
+          sudo apt-get install -y --no-install-recommends cuda-nvcc-12-9
           ls /usr/local/cuda*/bin/nvcc && echo "NVIDIA CUDA toolkit install OK"

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# cuda-toolkit.daftspec — CUDA 12.6 toolkit for Red Daft OS.
-# Core: cudart, nvrtc, cccl (thrust/cub), compiler, nsight.
+# cuda-toolkit.daftspec — CUDA toolkit for Red Daft OS.
+# Default 12.9: adds Blackwell (RTX 50xx, sm_120) on top of Ampere/Ada.
+# Override with CUDA_VER=12.6 etc. Core: cudart, nvrtc, cccl, compiler, nsight.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=nvidia-common.sh
 source "$HERE/nvidia-common.sh"
-DEBS=(cuda-toolkit-12-6 cuda-cudart-12-6 cuda-nvcc-12-6 cuda-nvrtc-12-6 cuda-cccl-12-6
-      cuda-compiler-12-6 cuda-nsight-12-6)
+DEBS=(cuda-toolkit-"$CUDA_SUFFIX" cuda-cudart-"$CUDA_SUFFIX" \
+      cuda-nvcc-"$CUDA_SUFFIX" cuda-nvrtc-"$CUDA_SUFFIX" \
+      cuda-cccl-"$CUDA_SUFFIX" cuda-compiler-"$CUDA_SUFFIX" \
+      cuda-nsight-"$CUDA_SUFFIX")
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
 add_nvidia_repo "$ROOT"

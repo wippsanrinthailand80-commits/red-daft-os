@@ -3,7 +3,9 @@
 # Adds the official NVIDIA CUDA apt repository and validates packages.
 set -euo pipefail
 
-CUDA_VER="${CUDA_VER:-12.6}"
+CUDA_VER="${CUDA_VER:-12.9}"
+# Package suffix used by the CUDA repo (12.9 -> "12-9").
+CUDA_SUFFIX="${CUDA_VER/./-}"
 NVIDIA_REPO="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
 NVIDIA_KEY_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub"
 

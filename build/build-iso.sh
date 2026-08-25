@@ -87,6 +87,10 @@ grub-pc-bin,grub-common,grub2-common,\
 live-boot,live-config,live-tools,initramfs-tools,lvm2,dosfstools,parted,gdisk,\
 xfce4,xfce4-goodies,lightdm,lightdm-gtk-greeter,xfce4-terminal,\
 arc-theme,papirus-icon-theme,\
+mesa-utils,libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,\
+ocl-icd-libopencl1,pocl-opencl-icd,clinfo,\
+pciutils,nvtop,\
+firmware-linux,firmware-misc-nonfree,\
 plymouth,plymouth-themes,\
 cryptsetup,mdadm"
 
@@ -256,6 +260,19 @@ DW
   if [[ -d packages/daft-pkg ]]; then
     cp -r packages/daft-pkg "$ROOTFS/opt/daft/daft-pkg" 2>/dev/null || true
     chroot "$ROOTFS" ln -sf /opt/daft/daft-pkg/daft-pkg.sh /usr/local/bin/daft-pkg 2>/dev/null || true
+  fi
+
+  # GPU compatibility layer: detect/activate/fallback + capability scorer.
+  # Runs at every boot (daft-gpu.service) so hot-swapped or newly-installed
+  # stacks are picked up without user action. Scores via /boot/config-$VER.
+  if [[ -d packages/gpu ]]; then
+    install -m755 packages/gpu/daft-gpu.sh "$ROOTFS/usr/local/bin/daft-gpu"
+    install -m755 packages/gpu/check-compat.sh "$ROOTFS/usr/local/bin/daft-compat"
+    install -Dm644 packages/gpu/daft-gpu.service \
+      "$ROOTFS/etc/systemd/system/daft-gpu.service"
+    chroot "$ROOTFS" systemctl enable daft-gpu.service 2>/dev/null || \
+      ln -sf /etc/systemd/system/daft-gpu.service \
+            "$ROOTFS/etc/systemd/system/multi-user.target.wants/daft-gpu.service"
   fi
 
   # Desktop launchers

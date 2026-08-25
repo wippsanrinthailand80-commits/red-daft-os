@@ -30,7 +30,11 @@ CONFIG_HARDENED_USERCOPY=y
 CONFIG_FORTIFY_SOURCE=y
 CONFIG_MODULE_SIG=y
 CONFIG_MODULE_SIG_ALL=y
-CONFIG_MODULE_SIG_FORCE=y
+# MODULE_SIG_FORCE deliberately NOT set: forced signature enforcement breaks
+# NVIDIA DKMS (out-of-tree drivers cannot ship our private key). Our own
+# modules (daft-defmon) are still signed at build time via MODULE_SIG_ALL,
+# and LOCK_DOWN_KERNEL_FORCE_INTEGRITY keeps the tamper posture elsewhere.
+# CONFIG_MODULE_SIG_FORCE is not set
 # Live, unauthorized memory patching (e.g. via /dev/kmem) is DISABLED:
 CONFIG_DEVKMEM=n
 CONFIG_STRICT_DEVMEM=y
@@ -55,3 +59,47 @@ CONFIG_NLS_ISO8859_1=y
 CONFIG_USB_STORAGE=y
 CONFIG_DEVTMPFS=y
 CONFIG_DEVTMPFS_MOUNT=y
+#
+# ── GPU enablement (AMD RDNA/CDNA + NVIDIA GSP-class) ──────────────────
+# Target cards: RTX 3090/4090/5090 (GA102/AD102/GB202), RX 7900 XTX
+# (Navi31/gfx1100), MI200/MI300 (gfx90a/gfx942). Drivers probe at boot,
+# so building them in costs nothing on machines without the hardware.
+CONFIG_DRM=y
+CONFIG_DRM_RADEON=m
+CONFIG_DRM_AMDGPU=m
+# Legacy ladder, oldest first:
+#   pre-GCN (HD 2000-6000)      -> radeon
+#   GCN1 / Southern Islands     -> amdgpu SI (R9 270X/280X...)
+CONFIG_DRM_AMDGPU_SI=y
+#   GCN2 / Sea Islands          -> amdgpu CIK (experimental tier)
+CONFIG_DRM_AMDGPU_CIK=y
+#   GCN4-5 (RX 400-500, Vega)   -> amdgpu native
+#   RDNA1/2/3 (RX 5000/6000/7000) -> amdgpu + DCN
+#   RDNA4 (RX 9000)             -> amdgpu + DCN (needs recent kernel + fw)
+CONFIG_DRM_AMD_DC=y
+CONFIG_DRM_AMD_DC_SI=y
+# KFD/HSA kernel driver — REQUIRED by ROCm userland (rocminfo, HIP).
+# Resolves to =m when AMDGPU=m; the compat checker accepts both.
+CONFIG_HSA_AMD=y
+# Unified-memory primitives (UVM-class). HMM_MIRROR is the seam our
+# accel_hal / Heterogeneous Memory Manager ports through.
+CONFIG_MMU_NOTIFIER=y
+CONFIG_HMM_MIRROR=y
+CONFIG_ZONE_DEVICE=y
+CONFIG_DEVICE_PRIVATE=y
+# Hotplug enables ZONE_DEVICE device-memory zones on x86_64.
+CONFIG_MEMORY_HOTPLUG=y
+# Huge pages help GPUVM; PASID/PRI for compute DMA isolation.
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_PCI_PASID=y
+CONFIG_PCI_PRI=y
+# IOMMU: real-GPU DMA isolation (+ future IOMMU binding in accel_hal).
+CONFIG_IOMMU_SUPPORT=y
+CONFIG_AMD_IOMMU=y
+CONFIG_INTEL_IOMMU=y
+CONFIG_IRQ_REMAP=y
+# Nouveau keeps pre-Turing cards alive without DKMS; Blackwell-class
+# RTX 50xx needs the out-of-tree open modules (shipped via daft specs).
+CONFIG_DRM_NOUVEAU=m
+# Virtual GPU so QEMU-based CI can exercise real KMS/DRM paths.
+CONFIG_DRM_VIRTIO_GPU=m
