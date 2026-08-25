@@ -43,7 +43,7 @@ stage_bootstrap() {
   echo "[*] bootstrapping Ubuntu noble ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
-    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal" \
+    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal" \
     --keyring="$KEYRING" \
     noble "$ROOTFS" \
     "deb $MIRROR noble main restricted universe" \
@@ -66,6 +66,66 @@ stage_configure() {
   chroot "$ROOTFS" systemctl enable daft-firstrun.service 2>/dev/null || \
     ln -sf /etc/systemd/system/daft-firstrun.service \
           "$ROOTFS/etc/systemd/system/multi-user.target.wants/daft-firstrun.service"
+
+  echo "[*] brand the OS: os-release, drop Ubiquity, crimson XFCE, welcome terminal"
+  chroot "$ROOTFS" bash -c '
+    # Remove stock Ubuntu installer if it snuck in
+    apt-get purge -y ubiquity ubiquity-slideshow-ubuntu 2>/dev/null || true
+    # Brand os-release
+    cat > /etc/os-release <<OSR
+NAME="Red Daft OS"
+VERSION="0.1 (Crimson)"
+ID=reddaft
+ID_LIKE=ubuntu
+PRETTY_NAME="Red Daft OS 0.1"
+VERSION_ID="0.1"
+HOME_URL="https://github.com/wippsanrinthailand80-commits/red-daft-os"
+OSR
+    # Crimson XFCE desktop for the agent user
+    mkdir -p /home/agent/.config/xfce4/xfconf/xfce-perchannel-xml
+    cat > /home/agent/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitor0" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="color1" type="array" value="65535;0;13056;65535"/>
+          <property name="color2" type="array" value="0;0;0;65535"/>
+        </property>
+      </property>
+    </property>
+  </property>
+</channel>
+XML
+    chown -R agent:agent /home/agent/.config
+    # LightDM greeter crimson background + hide other users
+    mkdir -p /etc/lightdm/lightdm.conf.d
+    cat >> /etc/lightdm/lightdm.conf.d/10-reddaft.conf <<LDM
+[greeter]
+background=#0C0C0C
+theme-name=Red-Daft
+LDM
+  '
+
+  # Welcome terminal autostart (outer level to avoid nested single-quote issues)
+  cat > "$ROOTFS/usr/local/bin/daft-welcome" <<'WELCOME'
+#!/bin/bash
+/usr/local/bin/daft-motd
+exec bash
+WELCOME
+  chmod +x "$ROOTFS/usr/local/bin/daft-welcome"
+  cat > "$ROOTFS/etc/xdg/autostart/daft-welcome.desktop" <<'DW'
+[Desktop Entry]
+Name=Red Daft Welcome
+Comment=Red Daft OS terminal welcome
+Exec=xfce4-terminal -e /usr/local/bin/daft-welcome
+Terminal=false
+Type=Application
+Categories=System;
+X-GNOME-Autostart-enabled=true
+DW
 
   echo "[*] MOTD"
   chroot "$ROOTFS" bash /opt/daft/ux/setup-motd.sh / 2>/dev/null || \
@@ -140,8 +200,18 @@ stage_iso() {
   cat > "$ISO_SRC/boot/grub/grub.cfg" <<'EOF'
 set timeout=10
 set default=0
-menuentry "Red Daft OS (Live)" {
+insmod all_video
+insmod gfxterm
+set color_normal=white/black
+set color_highlight=red/black
+set menu_color_normal=white/black
+set menu_color_highlight=red/black
+menuentry "Red Daft OS 0.1 (Live)" {
   linux /casper/vmlinuz boot=casper quiet splash
+  initrd /casper/initrd.img
+}
+menuentry "Red Daft OS 0.1 (Live, safe graphics)" {
+  linux /casper/vmlinuz boot=casper quiet splash nomodeset
   initrd /casper/initrd.img
 }
 EOF
