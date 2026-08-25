@@ -8,17 +8,22 @@ ROCM_VER="${ROCM_VER:-6.2}"
 AMD_REPO="https://repo.radeon.com/rocm/apt/${ROCM_VER}"
 ROCM_KEY_URL="https://repo.radeon.com/rocm/rocm.gpg.key"
 
-# Register the AMD ROCm apt repo inside $1 (defaults to /).
+# Register the AMD ROCm apt repo so the LIVE apt can resolve/download the debs.
+# (apt-get download always runs on the host, so the repo must be registered
+# there; a copy is also dropped under $dest so staged rootfs images ship it.)
 # NOTE: ROCm's signing key currently fails modern apt's strict sqv binding
-# check, so the repo is added with trusted=yes. The spec only downloads
-# AMD-published packages; this is the same workaround AMD documents for
-# current distros.
+# check, hence trusted=yes — the same workaround AMD documents for current
+# distros.
 add_amd_repo() {
   local dest="${1:-/}"
-  mkdir -p "$dest/etc/apt/sources.list.d"
-  echo "deb [arch=amd64 trusted=yes] $AMD_REPO jammy main" \
-    > "$dest/etc/apt/sources.list.d/amd-rocm.list"
-  apt-get update -o Dir="$dest" >/dev/null 2>&1 || apt-get update >/dev/null 2>&1 || true
+  local line="deb [arch=amd64 trusted=yes] $AMD_REPO jammy main"
+  mkdir -p /etc/apt/sources.list.d
+  echo "$line" > /etc/apt/sources.list.d/amd-rocm.list
+  if [[ "$dest" != "/" && -d "$dest" ]]; then
+    mkdir -p "$dest/etc/apt/sources.list.d" 2>/dev/null || true
+    echo "$line" > "$dest/etc/apt/sources.list.d/amd-rocm.list" 2>/dev/null || true
+  fi
+  apt-get update -o Dir=/ 2>&1 | grep -Ev '^(Get|Hit|Ign|Reading|Fetched)' || true
 }
 
 # Full stage: download + extract the named .debs into $1/rootfs.
