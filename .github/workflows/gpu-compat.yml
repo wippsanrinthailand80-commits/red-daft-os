@@ -74,10 +74,16 @@ jobs:
         run: |
           echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/rocm/apt/6.2 noble main" \
             | sudo tee /etc/apt/sources.list.d/amd-rocm.list
-          # Ubuntu's universe repo also ships an ancient hipcc (5.x, -> /usr/bin);
-          # rocm-hip-runtime is AMD's real 6.2 meta and lands under /opt/rocm.
+          # Ubuntu universe ships older ROCm bits with HIGHER debian versions
+          # (e.g. rocminfo 5.7.1 vs AMD's 1.0.0.x), which breaks metapackage
+          # exact-pins. Force the official repo to win every resolution.
+          sudo tee /etc/apt/preferences.d/rocm <<'EOF'
+          Package: *
+          Pin: origin repo.radeon.com
+          Pin-Priority: 1001
+          EOF
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rocm-hip-runtime rocm-llvm
+          sudo apt-get install -y --no-install-recommends hipcc
       - name: Compile for gfx90a (MI200) and gfx1100 (RX 7900 XTX)
         run: |
           HIPCC=$(find /opt/rocm* /usr -name hipcc -type f 2>/dev/null | head -1)
@@ -107,7 +113,9 @@ jobs:
       - name: Bootstrap minimal rootfs with fallback stack
         run: |
           sudo apt-get update && sudo apt-get install -y mmdebstrap debian-archive-keyring
-          sudo mmdebstrap --variant=minbase --arch=amd64 --include="libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,ocl-icd-libopencl1,pocl-opencl-icd,clinfo,pciutils,nvtop,firmware-linux-nonfree" bookworm /tmp/rfs "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
+          # Explicit keyring (same as build-iso.sh): runner images can carry a
+          # debian-archive-keyring too old for bookworm's rotated release keys.
+          sudo mmdebstrap --keyring=/usr/share/keyrings/debian-archive-keyring.gpg --variant=minbase --arch=amd64 --include="libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,ocl-icd-libopencl1,pocl-opencl-icd,clinfo,pciutils,nvtop,firmware-linux-nonfree" bookworm /tmp/rfs "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
       - name: Score fallback layer (FALLBACK must be 25/25)
         run: |
           bash packages/gpu/check-compat.sh /tmp/rfs --min 28
