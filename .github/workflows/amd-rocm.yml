@@ -39,7 +39,7 @@ jobs:
         run: |
           curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
             | gpg --dearmor -o /tmp/amd-rocm.gpg
-          echo "deb [arch=amd64 signed-by=/tmp/amd-rocm.gpg] https://repo.radeon.com/rocm/apt/6.2 jammy main" \
+          echo "deb [arch=amd64 signed-by=/tmp/amd-rocm.gpg] https://repo.radeon.com/rocm/apt/6.2 noble main" \
             | sudo tee /etc/apt/sources.list.d/amd-rocm.list
           sudo apt-get update
           sudo apt-get install -y rocm-smi-lib

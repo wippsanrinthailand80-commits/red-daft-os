@@ -16,7 +16,7 @@ ROCM_KEY_URL="https://repo.radeon.com/rocm/rocm.gpg.key"
 # distros.
 add_amd_repo() {
   local dest="${1:-/}"
-  local line="deb [arch=amd64 trusted=yes] $AMD_REPO jammy main"
+  local line="deb [arch=amd64 trusted=yes] $AMD_REPO noble main"
   mkdir -p /etc/apt/sources.list.d
   echo "$line" > /etc/apt/sources.list.d/amd-rocm.list
   if [[ "$dest" != "/" && -d "$dest" ]]; then
