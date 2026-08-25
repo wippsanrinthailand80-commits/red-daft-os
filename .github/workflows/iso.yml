@@ -1,7 +1,7 @@
 name: iso
-# Builds a REAL bootable Red Daft OS live ISO (privileged: mmdebstrap needs
-# CAP_SYS_ADMIN to mount /proc /sys /dev inside the chroot). GitHub-hosted
-# runners are full VMs and run this as root, so it works here.
+# Builds a REAL bootable Red Daft OS live ISO:
+#   kernel.org 7.1.10 (compiled from source) + Debian bookworm rootfs.
+# Requires privileged runner (mmdebstrap + kernel build).
 on:
   push:
     branches: [main, master]
@@ -14,7 +14,7 @@ jobs:
   build-iso:
     runs-on: ubuntu-latest
     env:
-      RD_ARCH: amd64   # force x86_64 ISO regardless of runner arch
+      RD_ARCH: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -23,10 +23,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             mmdebstrap squashfs-tools xorriso grub-efi-amd64-bin grub-common \
-            mtools debootstrap curl gpg
+            mtools debootstrap curl gpg \
+            make gcc g++ flex bison libssl-dev libelf-dev bc cpio
 
-      - name: Build Red Daft OS ISO
-        run: sudo bash build/build-iso.sh
+      - name: Build Red Daft OS ISO (kernel from source)
+        run: sudo -E bash build/build-iso.sh
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
