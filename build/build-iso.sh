@@ -18,6 +18,16 @@ ISO_OUT="$(pwd)/iso/red-daft-os-$(date +%Y%m%d)-${KERNEL_VER}-$DEBARCH.iso"
 ISO_SRC="$WORK/iso-src"
 KERNEL_OUT="$WORK/kernel-out"
 
+# Debian archive signing key (for mmdebstrap). Fetch if missing on this host.
+KEYRING="$(pwd)/build/debian-archive-keyring.gpg"
+if [[ ! -s "$KEYRING" ]]; then
+  echo "[*] fetching Debian archive signing key"
+  curl -fsSL "https://ftp.debian.org/debian/dists/bookworm/Release" -o /tmp/deb-release 2>/dev/null || true
+  curl -fsSL "https://ftp.debian.org/debian/archive-key.asc" -o /tmp/deb-key.asc 2>/dev/null \
+    && gpg --dearmor -o "$KEYRING" /tmp/deb-key.asc 2>/dev/null \
+    || cp /usr/share/keyrings/debian-archive-keyring.gpg "$KEYRING" 2>/dev/null || true
+fi
+
 clean() { rm -rf "$WORK"; }
 trap clean EXIT
 
@@ -37,24 +47,20 @@ stage_bootstrap() {
   mkdir -p "$ROOTFS"
 
   # Packages: full base + desktop + security tooling
-  local PKGS="systemd,systemd-sysv,dbus,udev,kmod,
-sudo,locales,rsync,curl,wget,git,
-network-manager,openssh-client,openssh-server,
-coreutils,findutils,binutils,procps,htop,top,
-python3,python3-pip,python3-venv,
-build-essential,gcc,g++,make,
-gcc-multilib,libssl-dev,libelf-dev,bc,flex,bison,
-zstd,xz-utils,cpio,
-grub-pc-bin,grub-common,grub2-common,
-casper,lvm2,dosfstools,parted,gdisk,
-xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,
-arc-theme,papirus-icon-theme,
-plymouth,plymouth-themes,
-cryptsetup,lvm2,mdadm,
-daft-pkg || true"
-
-  # Remove newlines/whitespace from PKGS
-  PKGS="$(echo "$PKGS" | tr '\n' ' ' | tr -s ' ')"
+  local PKGS="systemd,systemd-sysv,dbus,udev,kmod,\
+sudo,locales,rsync,curl,wget,git,\
+network-manager,openssh-client,openssh-server,\
+coreutils,findutils,binutils,procps,htop,\
+python3,python3-pip,python3-venv,\
+build-essential,gcc,g++,make,\
+libssl-dev,libelf-dev,bc,flex,bison,\
+zstd,xz-utils,cpio,\
+grub-pc-bin,grub-common,grub2-common,\
+casper,lvm2,dosfstools,parted,gdisk,\
+xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,\
+arc-theme,papirus-icon-theme,\
+plymouth,plymouth-themes,\
+cryptsetup,mdadm"
 
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
     --include="$PKGS" \
