@@ -37,3 +37,21 @@ CONFIG_STRICT_DEVMEM=y
 CONFIG_IO_STRICT_DEVMEM=y
 # Covert-channel / raw hidden sockets remain available ONLY via explicit,
 # logged, root-gated LSM policy — not silently. See docs/ARCHITECTURE.md.
+#
+# ── Live-system essentials ─────────────────────────────────────────────
+# live-boot mounts squashfs+overlay from CD/USB very early. These must be
+# builtin (=y): initramfs hooks cannot copy what is not a module, and a
+# missing driver here means an unbootable ISO, not a graceful fallback.
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_ZSTD=y
+CONFIG_SQUASHFS_XZ=y
+CONFIG_OVERLAY_FS=y
+CONFIG_ISO9660_FS=y
+CONFIG_UDF_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_NLS_CP437=y
+CONFIG_NLS_ISO8859_1=y
+CONFIG_USB_STORAGE=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y

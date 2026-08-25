@@ -22,8 +22,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            mmdebstrap squashfs-tools xorriso grub-efi-amd64-bin grub-common \
-            mtools debootstrap curl gpg debian-archive-keyring \
+            mmdebstrap squashfs-tools xorriso grub-efi-amd64-bin grub-pc-bin \
+            grub-common mtools debootstrap curl gpg debian-archive-keyring \
             make gcc g++ flex bison libssl-dev libelf-dev bc cpio
 
       - name: Build Red Daft OS ISO (kernel from source)

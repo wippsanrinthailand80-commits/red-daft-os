@@ -31,7 +31,17 @@ else
 fi
 echo "[*] using keyring: $KEYRING"
 
-clean() { rm -rf "$WORK"; }
+# Preserve $WORK on failure (post-mortem) or when KEEP_WORK=1 (incremental
+# builds: stage_kernel_build then skips straight to the cached vmlinuz).
+KEEP_WORK="${KEEP_WORK:-0}"
+clean() {
+  local rc=$?
+  if [[ "$rc" -ne 0 || "$KEEP_WORK" == "1" ]]; then
+    echo "[*] keeping $WORK (exit=$rc, KEEP_WORK=$KEEP_WORK)"
+  else
+    rm -rf "$WORK"
+  fi
+}
 trap clean EXIT
 
 # ── Stage 0: build kernel from source ──────────────────────────────────
@@ -56,6 +66,13 @@ stage_bootstrap() {
   echo "[*] bootstrapping Debian bookworm ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
 
+  # Incremental: skip bootstrap when a previous run already populated it
+  # (mmdebstrap refuses a non-empty target).
+  if [[ -s "$ROOTFS/etc/debian_version" ]]; then
+    echo "[*] existing rootfs found — skipping bootstrap"
+    return
+  fi
+
   # Packages: full base + desktop + security tooling (Debian equivalents
   # of Ubuntu's casper/xubuntu-core: live-boot + xfce4).
   local PKGS="systemd,systemd-sysv,dbus,udev,kmod,\
@@ -67,7 +84,7 @@ build-essential,gcc,g++,make,\
 libssl-dev,libelf-dev,bc,flex,bison,\
 zstd,xz-utils,cpio,\
 grub-pc-bin,grub-common,grub2-common,\
-live-boot,live-config,live-tools,lvm2,dosfstools,parted,gdisk,\
+live-boot,live-config,live-tools,initramfs-tools,lvm2,dosfstools,parted,gdisk,\
 xfce4,xfce4-goodies,lightdm,lightdm-gtk-greeter,xfce4-terminal,\
 arc-theme,papirus-icon-theme,\
 plymouth,plymouth-themes,\
@@ -92,13 +109,18 @@ stage_kernel_install() {
   # modules (includes daft-defmon.ko in extra/ if built)
   mkdir -p "$ROOTFS/lib/modules"
   cp -a "$KERNEL_OUT/lib/modules/${KERNEL_VER}" "$ROOTFS/lib/modules/${KERNEL_VER}"
-  # headers (for future LKM builds inside the running OS)
-  mkdir -p "$ROOTFS/usr/src"
-  cp -a "$KERNEL_OUT/usr" "$ROOTFS/usr" 2>/dev/null || true
+  # Kernel metadata for in-OS module development (uapi headers + config +
+  # symbol versions). Full kbuild tree is intentionally NOT shipped: it would
+  # bloat the squashfs by hundreds of MB. daft-defmon.ko ships prebuilt.
+  mkdir -p "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}"
+  cp -a "$KERNEL_OUT/usr/include" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/include"
+  local KB="$WORK/kernel-build/build"
+  [[ -f "$KB/.config" ]] && \
+    install -m644 "$KB/.config" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/.config"
+  [[ -f "$KB/Module.symvers" ]] && \
+    install -m644 "$KB/Module.symvers" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/Module.symvers"
   # depmod
   chroot "$ROOTFS" depmod -a "${KERNEL_VER}" 2>/dev/null || true
-  # Generate initramfs (live-boot needs it)
-  chroot "$ROOTFS" update-initramfs -c -k "${KERNEL_VER}" 2>/dev/null || true
 }
 
 # ── Stage 3: Red Daft branding + services ─────────────────────────────
@@ -225,7 +247,6 @@ DW
   install -Dm644 build/plymouth/reddaft/reddaft.plymouth "$ROOTFS/usr/share/plymouth/themes/reddaft/reddaft.plymouth"
   install -Dm644 build/plymouth/reddaft/reddaft.script "$ROOTFS/usr/share/plymouth/themes/reddaft/reddaft.script"
   chroot "$ROOTFS" plymouth-set-default-theme reddaft 2>/dev/null || true
-
   # daft-pkg manager into rootfs
   if [[ -d packages/daft-pkg ]]; then
     cp -r packages/daft-pkg "$ROOTFS/opt/daft/daft-pkg" 2>/dev/null || true
@@ -243,6 +264,21 @@ Icon=drive-harddisk
 Terminal=true
 Type=Application
 D
+
+  # ── Initramfs: generate LAST, after plymouth theme + all branding. ────
+  # The initramfs bakes in the configured plymouth theme and must see the
+  # final module tree, so this cannot happen during kernel install.
+  # Loud failure: a missing initrd means an unbootable ISO — never mask it.
+  echo "[*] generating initramfs ${KERNEL_VER}"
+  if [[ -f "$ROOTFS/boot/initrd.img-${KERNEL_VER}" ]]; then
+    chroot "$ROOTFS" update-initramfs -u -k "${KERNEL_VER}"
+  else
+    chroot "$ROOTFS" update-initramfs -c -k "${KERNEL_VER}"
+  fi
+  [[ -f "$ROOTFS/boot/initrd.img-${KERNEL_VER}" ]] || {
+    echo "[!] FATAL: update-initramfs produced no /boot/initrd.img-${KERNEL_VER}" >&2
+    exit 1
+  }
 }
 
 # ── Stage 5: assemble ISO ─────────────────────────────────────────────
