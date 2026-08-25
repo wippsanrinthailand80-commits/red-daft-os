@@ -18,15 +18,18 @@ ISO_OUT="$(pwd)/iso/red-daft-os-$(date +%Y%m%d)-${KERNEL_VER}-$DEBARCH.iso"
 ISO_SRC="$WORK/iso-src"
 KERNEL_OUT="$WORK/kernel-out"
 
-# Debian archive signing key (for mmdebstrap). Fetch if missing on this host.
-KEYRING="$(pwd)/build/debian-archive-keyring.gpg"
-if [[ ! -s "$KEYRING" ]]; then
+# Debian archive signing key (for mmdebstrap). Prefer system keyring, else fetch.
+if [[ -s /usr/share/keyrings/debian-archive-keyring.gpg ]]; then
+  KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
+elif [[ -s "$(pwd)/build/debian-archive-keyring.gpg" ]]; then
+  KEYRING="$(pwd)/build/debian-archive-keyring.gpg"
+else
   echo "[*] fetching Debian archive signing key"
-  curl -fsSL "https://ftp.debian.org/debian/dists/bookworm/Release" -o /tmp/deb-release 2>/dev/null || true
-  curl -fsSL "https://ftp.debian.org/debian/archive-key.asc" -o /tmp/deb-key.asc 2>/dev/null \
-    && gpg --dearmor -o "$KEYRING" /tmp/deb-key.asc 2>/dev/null \
-    || cp /usr/share/keyrings/debian-archive-keyring.gpg "$KEYRING" 2>/dev/null || true
+  curl -fsSL "https://ftp.debian.org/debian/project/archive.key" -o /tmp/deb-key.asc
+  gpg --dearmor -o "$(pwd)/build/debian-archive-keyring.gpg" /tmp/deb-key.asc
+  KEYRING="$(pwd)/build/debian-archive-keyring.gpg"
 fi
+echo "[*] using keyring: $KEYRING"
 
 clean() { rm -rf "$WORK"; }
 trap clean EXIT
