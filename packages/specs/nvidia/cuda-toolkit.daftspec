@@ -5,7 +5,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=nvidia-common.sh
 source "$HERE/nvidia-common.sh"
-DEBS=(cuda-toolkit-12-6 cuda-cudart-12-6 cuda-nvrtc-12-6 cuda-cccl-12-6
+DEBS=(cuda-toolkit-12-6 cuda-cudart-12-6 cuda-nvcc-12-6 cuda-nvrtc-12-6 cuda-cccl-12-6
       cuda-compiler-12-6 cuda-nsight-12-6)
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
