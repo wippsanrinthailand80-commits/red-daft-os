@@ -283,9 +283,15 @@ EOF
 }
 
 # ── Main ───────────────────────────────────────────────────────────────
+gen_assets() {
+  echo "[*] generating brand assets"
+  python3 "$(pwd)/build/gen-assets.py" "$(pwd)/build/assets"
+}
+
 mkdir -p "$WORK" "$(pwd)/iso"
 stage_kernel_build
 stage_bootstrap
 stage_kernel_install
+gen_assets
 stage_configure
 stage_iso
