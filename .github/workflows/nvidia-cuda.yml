@@ -1,0 +1,43 @@
+name: nvidia-cuda
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  nvidia-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spec:
+          - cuda-drivers
+          - cuda-toolkit
+          - cudnn
+          - tensorrt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install apt helpers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl gpg dpkg-dev apt-transport-https
+
+      - name: Validate ${{ matrix.spec }} resolves from NVIDIA CUDA repo
+        run: |
+          sudo bash "packages/specs/nvidia/${{ matrix.spec }}.daftspec" check
+
+  nvidia-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test NVIDIA CUDA toolkit
+        run: |
+          curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+            | gpg --dearmor -o /tmp/nvidia-cuda.gpg
+          echo "deb [arch=amd64 trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64 /" \
+            | sudo tee /etc/apt/sources.list.d/nvidia-cuda.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-cudart-12-6
+          ls /usr/local/cuda*/bin/nvcc && echo "NVIDIA CUDA toolkit install OK"

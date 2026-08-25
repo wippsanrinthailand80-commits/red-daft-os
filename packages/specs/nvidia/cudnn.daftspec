@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# cudnn.daftspec — cuDNN 9.x (deep learning primitives) for Red Daft OS.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=nvidia-common.sh
+source "$HERE/nvidia-common.sh"
+DEBS=(libcudnn9-cuda-12 libcudnn9-dev-cuda-12)
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
+add_nvidia_repo "$ROOT"
+if [[ "${1:-}" == "check" ]]; then check_debs "$WORK" "${DEBS[@]}";
+else stage_debs "$ROOT" "${DEBS[@]}"; build_daft "$WORK" cudnn "$CUDA_VER"; fi

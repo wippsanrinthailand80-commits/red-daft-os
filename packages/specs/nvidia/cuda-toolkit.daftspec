@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# cuda-toolkit.daftspec — CUDA 12.6 toolkit for Red Daft OS.
+# Core: cudart, nvrtc, cccl (thrust/cub), compiler, nsight.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=nvidia-common.sh
+source "$HERE/nvidia-common.sh"
+DEBS=(cuda-toolkit-12-6 cuda-cudart-12-6 cuda-nvrtc-12-6 cuda-cccl-12-6
+      cuda-compiler-12-6 cuda-nsight-12-6)
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
+add_nvidia_repo "$ROOT"
+if [[ "${1:-}" == "check" ]]; then check_debs "$WORK" "${DEBS[@]}";
+else stage_debs "$ROOT" "${DEBS[@]}"; build_daft "$WORK" cuda-toolkit "$CUDA_VER"; fi
