@@ -4,7 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=amd-common.sh
 source "$HERE/amd-common.sh"
-DEBS=(rocm-smi rocm-smi-lib)
+DEBS=(rocm-smi-lib)
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
 add_amd_repo "$ROOT"

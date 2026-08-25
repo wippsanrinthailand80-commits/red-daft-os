@@ -6,17 +6,18 @@ set -euo pipefail
 
 ROCM_VER="${ROCM_VER:-6.2}"
 AMD_REPO="https://repo.radeon.com/rocm/apt/${ROCM_VER}"
+ROCM_KEY_URL="https://repo.radeon.com/rocm/rocm.gpg.key"
 
 # Register the AMD ROCm apt repo inside $1 (defaults to /).
 add_amd_repo() {
   local dest="${1:-/}"
-  mkdir -p "$dest/etc/apt/trusted.gpg.d" "$dest/etc/apt/sources.list.d"
+  mkdir -p "$dest/etc/apt/keyrings" "$dest/etc/apt/sources.list.d"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$AMD_REPO/rocm.gpg.key" \
-      | gpg --dearmor -o "$dest/etc/apt/trusted.gpg.d/amd-rocm.gpg" 2>/dev/null \
+    curl -fsSL "$ROCM_KEY_URL" \
+      | gpg --dearmor -o "$dest/etc/apt/keyrings/amd-rocm.gpg" 2>/dev/null \
       || echo "[!] gpg key import skipped (may already be present)"
   fi
-  echo "deb [arch=amd64] $AMD_REPO jammy main" \
+  echo "deb [arch=amd64 signed-by=$dest/etc/apt/keyrings/amd-rocm.gpg] $AMD_REPO jammy main" \
     > "$dest/etc/apt/sources.list.d/amd-rocm.list"
   apt-get update -o Dir="$dest" >/dev/null 2>&1 || apt-get update >/dev/null 2>&1 || true
 }

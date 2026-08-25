@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# amdgpu-dkms.daftspec — AMDGPU kernel driver (DKMS) for Red Daft OS.
+# amdgpu-dkms.daftspec — AMDGPU userspace / compute stack for Red Daft OS.
+# (The amdgpu kernel driver ships in-tree with the Red Daft kernel; this stages
+#  the ROCm userspace needed for OpenCL/HIP on AMD GPUs.)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=amd-common.sh
 source "$HERE/amd-common.sh"
-DEBS=(amdgpu-dkms amdgpu-lib libdrm-amdgpu-amdgpu1)
+DEBS=(rocm-opencl-runtime rocm-opencl-icd-loader rocm-utils rocm-hip-runtime)
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 ROOT="$WORK/rootfs"; mkdir -p "$ROOT"
 add_amd_repo "$ROOT"

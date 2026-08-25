@@ -41,7 +41,7 @@ jobs:
           printf '#!/bin/sh\necho hello-from-daft\n' > /tmp/sample/rootfs/usr/bin/daft-hello
           chmod +x /tmp/sample/rootfs/usr/bin/daft-hello
           bash packages/daft-pkg/make-daft-pkg.sh /tmp/sample daft-hello 1.0 /tmp/daft-hello-1.0.daft
-          sudo DAFT_ROOT=/ bash packages/daft-pkg/daft-pkg.sh install /tmp/daft-hello-1.0.daft
+          sudo DAFT_INSECURE=1 DAFT_ROOT=/ bash packages/daft-pkg/daft-pkg.sh install /tmp/daft-hello-1.0.daft
           test -x /usr/bin/daft-hello && /usr/bin/daft-hello
 
       - name: Test daft-ai-guard (defensive filter)
