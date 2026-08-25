@@ -29,7 +29,8 @@ Requires `mmdebstrap`, `squashfs-tools`, `xorriso`, `grub-efi-<arch>-bin`, and r
 The ISO is also built automatically on every push by `.github/workflows/iso.yml`
 (privileged GitHub runner) and published as a downloadable **red-daft-os-iso**
 artifact. It boots a real live system: GRUB → casper → hardened kernel, with the
-`agent` user auto-logged into `daft-shell` (MOTD + branding).
+`agent` user auto-logged into an **XFCE desktop** (or `daft-shell` on tty1), plus
+a **disk installer** (`reddaft-install`) to install it to a drive.
 
 ## Container (runs anywhere, no boot required)
 ```bash

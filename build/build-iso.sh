@@ -35,7 +35,7 @@ stage_bootstrap() {
   echo "[*] bootstrapping Ubuntu noble ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
-    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,network-manager,sudo,locales" \
+    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal" \
     --keyring="$KEYRING" \
     noble "$ROOTFS" \
     "deb $MIRROR noble main restricted universe" \
@@ -77,6 +77,30 @@ stage_configure() {
     printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin agent --noclear %%I \$TERM\n" \
       > /etc/systemd/system/getty@tty1.service.d/autologin.conf
   '
+
+  echo "[*] XFCE desktop + lightdm autologin"
+  chroot "$ROOTFS" bash -c '
+    mkdir -p /etc/lightdm/lightdm.conf.d
+    cat > /etc/lightdm/lightdm.conf.d/10-reddaft.conf <<LDM
+[Seat:*]
+autologin-user=agent
+autologin-session=xfce
+user-session=xfce
+LDM
+  '
+
+  echo "[*] disk installer + desktop launcher"
+  install -Dm755 ux/reddaft-install.sh "$ROOTFS/usr/local/bin/reddaft-install"
+  cat > "$ROOTFS/usr/share/applications/reddaft-install.desktop" <<'D'
+[Desktop Entry]
+Name=Red Daft Installer
+Comment=Install Red Daft OS to a disk
+Exec=sudo /usr/local/bin/reddaft-install
+Icon=drive-harddisk
+Terminal=true
+Type=Application
+Categories=System;
+D
 }
 
 stage_kernel() {
