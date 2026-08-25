@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             mmdebstrap squashfs-tools xorriso grub-efi-amd64-bin grub-common \
-            debootstrap curl gpg
+            mtools debootstrap curl gpg
 
       - name: Build Red Daft OS ISO
         run: sudo bash build/build-iso.sh
