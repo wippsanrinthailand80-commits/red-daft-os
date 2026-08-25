@@ -114,9 +114,14 @@ stage_kernel_install() {
   # bloat the squashfs by hundreds of MB. daft-defmon.ko ships prebuilt.
   mkdir -p "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}"
   cp -a "$KERNEL_OUT/usr/include" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/include"
+  # Kernel metadata expected by Debian userland. mkinitramfs greps
+  # /boot/config-${KERNEL_VER} for CONFIG_RD_* to pick initrd compression;
+  # without it update-initramfs fails ("CONFIG_RD_GZIP not supported").
   local KB="$WORK/kernel-build/build"
   [[ -f "$KB/.config" ]] && \
-    install -m644 "$KB/.config" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/.config"
+    install -m644 "$KB/.config" "$ROOTFS/boot/config-${KERNEL_VER}"
+  [[ -f "$KB/System.map" ]] && \
+    install -m644 "$KB/System.map" "$ROOTFS/boot/System.map-${KERNEL_VER}"
   [[ -f "$KB/Module.symvers" ]] && \
     install -m644 "$KB/Module.symvers" "$ROOTFS/usr/src/linux-headers-${KERNEL_VER}/Module.symvers"
   # depmod
