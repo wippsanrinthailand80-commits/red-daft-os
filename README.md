@@ -18,7 +18,21 @@ AI developers, and power users. 100% free and open-source.
 - **daft-ai-guard** — defensive content filter (no guardrail bypass).
 - **daft-shell** — in-RAM C/Python execution (TCC).
 - **AMD ROCm support** — `.daft` specs for the full ROCm stack (see below).
+- **NVIDIA CUDA support** — `.daft` specs for CUDA drivers, toolkit, cuDNN, TensorRT.
 - **Branding** — crimson `#FF0033` / matte-black theme, ASCII logo, MOTD, Plymouth splash.
+
+## System requirements
+
+| | Minimum | Recommended | AI / ML |
+|---|---|---|---|
+| **RAM** | 2 GB | 8 GB | 16 GB+ |
+| **Storage** | 20 GB | 50 GB | 100 GB+ |
+| **CPU** | x86_64, 2 cores | x86_64, 4 cores+ | x86_64, 8 cores+ |
+
+- **Minimum** runs XFCE desktop + daft-shell + security tooling.
+- **Recommended** adds Ollama + `qwen2.5:3b` local AI model.
+- **AI / ML** accommodates larger models (7B–32B) and GPU-accelerated workloads (AMD ROCm / NVIDIA CUDA).
+- GPU drivers are optional: `amdgpu-dkms` for AMD, `nvidia-driver-550+` for NVIDIA.
 
 ## Build
 ```bash
@@ -58,10 +72,21 @@ Full stage + build:
 ROCM_VER=6.2 bash packages/specs/amd/rocm-runtime.daftspec
 ```
 
+## NVIDIA / CUDA packages
+Specs under `packages/specs/nvidia/` build `.daft` archives for NVIDIA GPUs:
+`cuda-drivers`, `cuda-toolkit`, `cudnn`, `tensorrt`. Validate against the live CUDA repo:
+```bash
+bash packages/specs/nvidia/cuda-toolkit.daftspec check
+```
+Full stage + build:
+```bash
+CUDA_VER=12.6 bash packages/specs/nvidia/cuda-toolkit.daftspec
+```
+
 ## Directory layout
 ```
 build/        ISO pipeline + hardened kernel config + Plymouth theme
-packages/     daft-pkg, deb-adapter, daft specs (incl. amd/ ROCm specs)
+packages/     daft-pkg, deb-adapter, daft specs (amd/ ROCm + nvidia/ CUDA)
 ai/           Modelfile, ollama-setup, daft-ai-guard
 shell/        daft-shell (in-RAM execution)
 kernel/       daft-defmon defensive LKM
