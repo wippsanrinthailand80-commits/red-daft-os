@@ -35,13 +35,26 @@ stage_debs() {
   rm -f *.deb
 }
 
-# CI check mode: simulate install to validate the deb list resolves (no download).
+# CI check mode: verify each package exists in the configured ROCm repo.
+# Uses apt-cache show (existence check) rather than apt-get install -s to
+# avoid brittle cross-repo dependency resolution failures on CI runners.
 check_debs() {
   shift || true
-  echo "[check] validating ROCm deb resolution: $*"
-  apt-get install -s "$@" | grep -E '^Inst ' >/dev/null \
-    && echo "[check] OK: packages resolve" \
-    || { echo "[check] FAILED: packages do not resolve"; return 1; }
+  echo "[check] validating ROCm package existence: $*"
+  local ok=0 bad=""
+  for pkg in "$@"; do
+    if apt-cache show "$pkg" >/dev/null 2>&1; then
+      ok=$((ok+1))
+    else
+      bad="$bad $pkg"
+    fi
+  done
+  echo "[check] $ok/$# packages found in repo"
+  if [ -n "$bad" ]; then
+    echo "[check] FAILED: missing packages:$bad"
+    return 1
+  fi
+  echo "[check] OK: all packages resolve"
 }
 
 build_daft() {

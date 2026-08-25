@@ -42,5 +42,13 @@ jobs:
           echo "deb [arch=amd64 signed-by=/tmp/amd-rocm.gpg] https://repo.radeon.com/rocm/apt/6.2 noble main" \
             | sudo tee /etc/apt/sources.list.d/amd-rocm.list
           sudo apt-get update
-          sudo apt-get install -y rocm-smi-lib
-          rocm-smi --version && echo "ROCm userspace install OK"
+          sudo apt-get install -y rocm-smi-lib amd-smi-lib
+          if [ -x /opt/rocm-6.2.0/bin/rocm-smi ]; then
+            /opt/rocm-6.2.0/bin/rocm-smi --version && echo "ROCm userspace install OK"
+          elif [ -x /opt/rocm-6.2.0/bin/amd-smi ]; then
+            /opt/rocm-6.2.0/bin/amd-smi --version && echo "ROCm userspace install OK (amd-smi)"
+          else
+            echo "Neither rocm-smi nor amd-smi found in /opt/rocm-6.2.0/bin"
+            find /opt/rocm* /usr/bin -name '*smi*' 2>/dev/null || true
+            exit 1
+          fi
