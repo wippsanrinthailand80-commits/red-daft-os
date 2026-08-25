@@ -74,11 +74,15 @@ jobs:
         run: |
           echo "deb [arch=amd64 trusted=yes] https://repo.radeon.com/rocm/apt/6.2 noble main" \
             | sudo tee /etc/apt/sources.list.d/amd-rocm.list
+          # Ubuntu's universe repo also ships an ancient hipcc (5.x, -> /usr/bin);
+          # rocm-hip-runtime is AMD's real 6.2 meta and lands under /opt/rocm.
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends hipcc rocm-device-libs comgr
+          sudo apt-get install -y --no-install-recommends rocm-hip-runtime rocm-llvm
       - name: Compile for gfx90a (MI200) and gfx1100 (RX 7900 XTX)
         run: |
-          HIPCC=$(ls /opt/rocm*/bin/hipcc | head -1)
+          HIPCC=$(find /opt/rocm* /usr -name hipcc -type f 2>/dev/null | head -1)
+          echo "using hipcc: $HIPCC"
+          [[ -x "$HIPCC" ]] || { echo "no hipcc found"; exit 1; }
           cat > /tmp/t.hip <<'EOF'
           __global__ void scale(float* v, float s, int n) {
             int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -102,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Bootstrap minimal rootfs with fallback stack
         run: |
-          sudo apt-get update && sudo apt-get install -y mmdebstrap
+          sudo apt-get update && sudo apt-get install -y mmdebstrap debian-archive-keyring
           sudo mmdebstrap --variant=minbase --arch=amd64 --include="libgl1-mesa-dri,libglx-mesa0,mesa-vulkan-drivers,libvulkan1,vulkan-tools,ocl-icd-libopencl1,pocl-opencl-icd,clinfo,pciutils,nvtop,firmware-linux-nonfree" bookworm /tmp/rfs "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
       - name: Score fallback layer (FALLBACK must be 25/25)
         run: |
