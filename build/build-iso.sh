@@ -42,6 +42,13 @@ stage_kernel_build() {
   fi
   echo "[*] building kernel ${KERNEL_VER} from kernel.org source"
   bash "$(pwd)/build/build-kernel.sh"
+  # Build daft-defmon LKM against the just-built kernel build dir.
+  echo "[*] building daft-defmon LKM"
+  ( cd kernel/daft-defmon && make KDIR="$WORK/kernel-build/build" clean ) 2>/dev/null || true
+  ( cd kernel/daft-defmon && make KDIR="$WORK/kernel-build/build" ) && \
+    install -Dm644 kernel/daft-defmon/daft-defmon.ko \
+      "$KERNEL_OUT/lib/modules/${KERNEL_VER}/extra/daft-defmon.ko" \
+    || echo "[!] LKM build skipped"
 }
 
 # ── Stage 1: bootstrap Debian bookworm rootfs ─────────────────────────
@@ -49,7 +56,8 @@ stage_bootstrap() {
   echo "[*] bootstrapping Debian bookworm ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
 
-  # Packages: full base + desktop + security tooling
+  # Packages: full base + desktop + security tooling (Debian equivalents
+  # of Ubuntu's casper/xubuntu-core: live-boot + xfce4).
   local PKGS="systemd,systemd-sysv,dbus,udev,kmod,\
 sudo,locales,rsync,curl,wget,git,\
 network-manager,openssh-client,openssh-server,\
@@ -59,8 +67,8 @@ build-essential,gcc,g++,make,\
 libssl-dev,libelf-dev,bc,flex,bison,\
 zstd,xz-utils,cpio,\
 grub-pc-bin,grub-common,grub2-common,\
-casper,lvm2,dosfstools,parted,gdisk,\
-xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,\
+live-boot,live-config,live-tools,lvm2,dosfstools,parted,gdisk,\
+xfce4,xfce4-goodies,lightdm,lightdm-gtk-greeter,xfce4-terminal,\
 arc-theme,papirus-icon-theme,\
 plymouth,plymouth-themes,\
 cryptsetup,mdadm"
@@ -81,14 +89,14 @@ stage_kernel_install() {
   # vmlinuz
   install -Dm644 "$KERNEL_OUT/boot/vmlinuz-${KERNEL_VER}" \
     "$ROOTFS/boot/vmlinuz-${KERNEL_VER}"
-  # modules
+  # modules (includes daft-defmon.ko in extra/ if built)
   cp -a "$KERNEL_OUT/lib/modules/${KERNEL_VER}" "$ROOTFS/lib/modules/${KERNEL_VER}"
-  # headers (for LKM builds)
+  # headers (for future LKM builds inside the running OS)
   mkdir -p "$ROOTFS/usr/src"
   cp -a "$KERNEL_OUT/usr" "$ROOTFS/usr" 2>/dev/null || true
   # depmod
   chroot "$ROOTFS" depmod -a "${KERNEL_VER}" 2>/dev/null || true
-  # Generate initramfs (casper needs it)
+  # Generate initramfs (live-boot needs it)
   chroot "$ROOTFS" update-initramfs -c -k "${KERNEL_VER}" 2>/dev/null || true
 }
 
@@ -236,31 +244,16 @@ Type=Application
 D
 }
 
-# ── Stage 4: build daft-defmon LKM against from-source kernel ─────────
-stage_lkm() {
-  echo "[*] building daft-defmon LKM"
-  local kh="$ROOTFS/lib/modules/${KERNEL_VER}/build"
-  if [[ -d "$kh" ]]; then
-    ( cd kernel/daft-defmon && make KDIR="$kh" ) && \
-      install -Dm644 kernel/daft-defmon/daft-defmon.ko \
-        "$ROOTFS/lib/modules/${KERNEL_VER}/extra/daft-defmon.ko" \
-      && chroot "$ROOTFS" depmod -a "${KERNEL_VER}" \
-      || echo "[!] LKM build/install skipped"
-  else
-    echo "[!] kernel headers not found at $kh; LKM not built"
-  fi
-}
-
 # ── Stage 5: assemble ISO ─────────────────────────────────────────────
 stage_iso() {
-  echo "[*] assembling live ISO via GRUB + casper"
-  mkdir -p "$ISO_SRC/casper" "$ISO_SRC/boot/grub"
+  echo "[*] assembling live ISO via GRUB + live-boot (Debian)"
+  mkdir -p "$ISO_SRC/live" "$ISO_SRC/boot/grub"
   cp build/assets/reddaft-bg.png "$ISO_SRC/boot/grub/reddaft-bg.png"
 
-  cp "$ROOTFS/boot/vmlinuz-${KERNEL_VER}" "$ISO_SRC/casper/vmlinuz"
-  cp "$ROOTFS/boot/initrd.img-${KERNEL_VER}" "$ISO_SRC/casper/initrd.img"
+  cp "$ROOTFS/boot/vmlinuz-${KERNEL_VER}" "$ISO_SRC/live/vmlinuz"
+  cp "$ROOTFS/boot/initrd.img-${KERNEL_VER}" "$ISO_SRC/live/initrd.img"
 
-  mksquashfs "$ROOTFS" "$ISO_SRC/casper/filesystem.squashfs" -comp zstd
+  mksquashfs "$ROOTFS" "$ISO_SRC/live/filesystem.squashfs" -comp zstd
 
   cat > "$ISO_SRC/boot/grub/grub.cfg" <<EOF
 set timeout=10
@@ -274,12 +267,12 @@ set color_highlight=red/black
 set menu_color_normal=white/black
 set menu_color_highlight=red/black
 menuentry "Red Daft OS 0.2 — kernel ${KERNEL_VER} (Live)" {
-  linux /casper/vmlinuz boot=casper quiet splash
-  initrd /casper/initrd.img
+  linux /live/vmlinuz boot=live quiet splash
+  initrd /live/initrd.img
 }
 menuentry "Red Daft OS 0.2 — kernel ${KERNEL_VER} (safe graphics)" {
-  linux /casper/vmlinuz boot=casper quiet splash nomodeset
-  initrd /casper/initrd.img
+  linux /live/vmlinuz boot=live quiet splash nomodeset
+  initrd /live/initrd.img
 }
 EOF
 
@@ -294,5 +287,4 @@ stage_kernel_build
 stage_bootstrap
 stage_kernel_install
 stage_configure
-stage_lkm
 stage_iso
