@@ -43,7 +43,7 @@ stage_bootstrap() {
   echo "[*] bootstrapping Ubuntu noble ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
-    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,arc-theme,papirus-icon-theme,git,curl,wget,plymouth,plymouth-label" \
+    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,arc-theme,papirus-icon-theme,git,curl,wget,plymouth,plymouth-label,zstd" \
     --keyring="$KEYRING" \
     noble "$ROOTFS" \
     "deb $MIRROR noble main restricted universe" \
@@ -59,6 +59,8 @@ stage_configure() {
   cp -r shell "$ROOTFS/opt/daft/shell"
   cp -r ux "$ROOTFS/opt/daft/ux"
   cp -r kernel "$ROOTFS/opt/daft/kernel"
+  # Create operator account early so branding chowns succeed.
+  chroot "$ROOTFS" useradd -ms /bin/bash -G sudo agent 2>/dev/null || true
   chroot "$ROOTFS" bash /opt/daft/ai/ollama-setup.sh bootstrap 2>/dev/null || echo "[!] ollama bootstrap skipped (no network in chroot)"
 
   echo "[*] first-boot ID card service"
