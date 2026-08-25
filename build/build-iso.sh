@@ -61,6 +61,22 @@ stage_kernel_build() {
     || echo "[!] LKM build skipped"
 }
 
+# ── Stage 0b: build the AI-Kernel (second, experimental kernel) ────────
+stage_ai_kernel() {
+  local AIDIR="$(pwd)/kernel/ai-kernel"
+  [[ -d "$AIDIR" ]] || { echo "[!] no ai-kernel sources — skipping"; return; }
+  echo "[*] building AI-Kernel (bare-metal Multiboot2)"
+  make -C "$AIDIR" clean >/dev/null
+  if make -C "$AIDIR" >/dev/null; then
+    install -Dm755 "$AIDIR/build/ai-kernel.elf" \
+      "$KERNEL_OUT/boot/ai-kernel.elf"
+    echo "[+] ai-kernel.elf: $(du -h "$KERNEL_OUT/boot/ai-kernel.elf" | cut -f1)"
+  else
+    # Never fail the whole ISO because the experimental kernel hiccuped.
+    echo "[!] AI-Kernel build failed — dual-boot entry omitted" >&2
+  fi
+}
+
 # ── Stage 1: bootstrap Debian bookworm rootfs ─────────────────────────
 stage_bootstrap() {
   echo "[*] bootstrapping Debian bookworm ($DEBARCH) -> $ROOTFS"
@@ -113,6 +129,22 @@ stage_kernel_install() {
   # modules (includes daft-defmon.ko in extra/ if built)
   mkdir -p "$ROOTFS/lib/modules"
   cp -a "$KERNEL_OUT/lib/modules/${KERNEL_VER}" "$ROOTFS/lib/modules/${KERNEL_VER}"
+  # second kernel (dual-boot on installed systems too)
+  if [[ -f "$KERNEL_OUT/boot/ai-kernel.elf" ]]; then
+    install -Dm755 "$KERNEL_OUT/boot/ai-kernel.elf" "$ROOTFS/boot/ai-kernel.elf"
+    mkdir -p "$ROOTFS/etc/grub.d"
+    cat > "$ROOTFS/etc/grub.d/40-ai-kernel" <<'AIK'
+#!/bin/sh
+cat <<'EOF'
+menuentry "Red Daft AI-Kernel 0.1 — experimental bare-metal HMM" {
+  insmod multiboot2
+  multiboot2 /boot/ai-kernel.elf
+  boot
+}
+EOF
+AIK
+    chmod +x "$ROOTFS/etc/grub.d/40-ai-kernel"
+  fi
   # Kernel metadata for in-OS module development (uapi headers + config +
   # symbol versions). Full kbuild tree is intentionally NOT shipped: it would
   # bloat the squashfs by hundreds of MB. daft-defmon.ko ships prebuilt.
@@ -141,6 +173,7 @@ stage_configure() {
   cp -r shell "$ROOTFS/opt/daft/shell"
   cp -r ux "$ROOTFS/opt/daft/ux"
   cp -r kernel "$ROOTFS/opt/daft/kernel"
+  rm -rf "$ROOTFS/opt/daft/kernel/ai-kernel/build" 2>/dev/null || true
 
   # Operator account
   chroot "$ROOTFS" useradd -ms /bin/bash -G sudo agent 2>/dev/null || true
@@ -312,6 +345,13 @@ stage_iso() {
   cp "$ROOTFS/boot/vmlinuz-${KERNEL_VER}" "$ISO_SRC/live/vmlinuz"
   cp "$ROOTFS/boot/initrd.img-${KERNEL_VER}" "$ISO_SRC/live/initrd.img"
 
+  # Second kernel: bare-metal AI-Kernel (Multiboot2), if it built.
+  local AIK=""
+  if [[ -f "$KERNEL_OUT/boot/ai-kernel.elf" ]]; then
+    cp "$KERNEL_OUT/boot/ai-kernel.elf" "$ISO_SRC/boot/ai-kernel.elf"
+    AIK="yes"
+  fi
+
   mksquashfs "$ROOTFS" "$ISO_SRC/live/filesystem.squashfs" -comp zstd
 
   cat > "$ISO_SRC/boot/grub/grub.cfg" <<EOF
@@ -335,6 +375,17 @@ menuentry "Red Daft OS 0.2 — kernel ${KERNEL_VER} (safe graphics)" {
 }
 EOF
 
+  if [[ -n "$AIK" ]]; then
+    cat >> "$ISO_SRC/boot/grub/grub.cfg" <<EOF
+menuentry "Red Daft AI-Kernel 0.1 — experimental bare-metal HMM" {
+  insmod multiboot2
+  echo "Loading AI-Kernel (serial console on COM1)..."
+  multiboot2 /boot/ai-kernel.elf
+  boot
+}
+EOF
+  fi
+
   mkdir -p "$(pwd)/iso"
   grub-mkrescue -o "$ISO_OUT" "$ISO_SRC"
   echo "[+] ISO: $ISO_OUT ($(du -h "$ISO_OUT" | cut -f1))"
@@ -348,6 +399,7 @@ gen_assets() {
 
 mkdir -p "$WORK" "$(pwd)/iso"
 stage_kernel_build
+stage_ai_kernel
 stage_bootstrap
 stage_kernel_install
 gen_assets

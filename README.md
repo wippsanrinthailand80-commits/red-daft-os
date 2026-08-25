@@ -99,6 +99,22 @@ Mesa OpenCL — not ROCm. That is upstream reality, not a Red Daft gap.
 4. bootstraps a bookworm rootfs with the fallback set and enforces
    FALLBACK 25/25 in the scorer.
 
+## Dual kernel
+
+The ISO ships **two kernels** in one GRUB menu:
+
+1. **Daft-Kernel** — hardened Linux 7.1.10, the daily driver (XFCE, security
+   tooling, local AI, GPU stacks).
+2. **Red Daft AI-Kernel** — a from-scratch bare-metal Multiboot2 kernel
+   (`kernel/ai-kernel/`, serial console on COM1) demonstrating the
+   Heterogeneous Memory Manager: VRAM-as-cache over host RAM with GPU-style
+   page faults, LRU eviction, and automatic CPU-reference correctness gates.
+
+Both boot from the same medium; installed systems get `/boot/ai-kernel.elf`
+plus a `grub.d` entry automatically. The long-term goal is a shared
+`accel_hal` seam and a vendor-neutral interchange format so compute kernels
+written once run on either kernel, on NVIDIA or AMD hardware.
+
 ## AMD / ROCm packages
 Specs under `packages/specs/amd/` build `.daft` archives for AMD GPUs:
 `amdgpu-dkms`, `rocm-runtime`, `rocblas`, `miopen`, `rocm-smi`, `rocm-dev`,
