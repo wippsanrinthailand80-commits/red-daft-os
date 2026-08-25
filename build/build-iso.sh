@@ -53,7 +53,7 @@ stage_bootstrap() {
 
 stage_configure() {
   echo "[*] installing Red Daft components"
-  cp -r packages ai shell ux kernel "$ROOTFS/opt/daft/" 2>/dev/null || true
+  mkdir -p "$ROOTFS/opt/daft"
   cp -r packages "$ROOTFS/opt/daft/packages"
   cp -r ai "$ROOTFS/opt/daft/ai"
   cp -r shell "$ROOTFS/opt/daft/shell"
