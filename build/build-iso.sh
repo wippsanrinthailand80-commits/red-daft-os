@@ -90,6 +90,7 @@ stage_kernel_install() {
   install -Dm644 "$KERNEL_OUT/boot/vmlinuz-${KERNEL_VER}" \
     "$ROOTFS/boot/vmlinuz-${KERNEL_VER}"
   # modules (includes daft-defmon.ko in extra/ if built)
+  mkdir -p "$ROOTFS/lib/modules"
   cp -a "$KERNEL_OUT/lib/modules/${KERNEL_VER}" "$ROOTFS/lib/modules/${KERNEL_VER}"
   # headers (for future LKM builds inside the running OS)
   mkdir -p "$ROOTFS/usr/src"
