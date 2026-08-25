@@ -90,6 +90,7 @@ jobs:
           echo "using hipcc: $HIPCC"
           [[ -x "$HIPCC" ]] || { echo "no hipcc found"; exit 1; }
           cat > /tmp/t.hip <<'EOF'
+          #include <hip/hip_runtime.h>
           __global__ void scale(float* v, float s, int n) {
             int i = blockIdx.x * blockDim.x + threadIdx.x;
             if (i < n) v[i] *= s;
