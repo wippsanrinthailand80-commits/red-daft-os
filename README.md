@@ -26,6 +26,11 @@ sudo bash build/build-iso.sh      # bootstrap -> configure -> kernel -> plymouth
 ```
 Requires `mmdebstrap`, `squashfs-tools`, `xorriso`, `grub-efi-<arch>-bin`, and root privileges (`CAP_SYS_ADMIN`).
 
+The ISO is also built automatically on every push by `.github/workflows/iso.yml`
+(privileged GitHub runner) and published as a downloadable **red-daft-os-iso**
+artifact. It boots a real live system: GRUB → casper → hardened kernel, with the
+`agent` user auto-logged into `daft-shell` (MOTD + branding).
+
 ## Container (runs anywhere, no boot required)
 ```bash
 docker build -t red-daft-os .

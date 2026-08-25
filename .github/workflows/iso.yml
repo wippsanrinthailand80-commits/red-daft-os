@@ -1,0 +1,34 @@
+name: iso
+# Builds a REAL bootable Red Daft OS live ISO (privileged: mmdebstrap needs
+# CAP_SYS_ADMIN to mount /proc /sys /dev inside the chroot). GitHub-hosted
+# runners are full VMs and run this as root, so it works here.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mmdebstrap squashfs-tools xorriso grub-efi-amd64-bin grub-common \
+            debootstrap curl gpg
+
+      - name: Build Red Daft OS ISO
+        run: sudo bash build/build-iso.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: red-daft-os-iso
+          path: iso/*.iso
+          if-no-files-found: error

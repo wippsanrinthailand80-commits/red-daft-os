@@ -17,7 +17,10 @@ ISO_SRC="$WORK/iso-src"
 
 # Fetch Ubuntu archive signing key so mmdebstrap can verify Release files.
 KEYRING="$(pwd)/build/ubuntu-archive-keyring.gpg"
-if [[ ! -s "$KEYRING" ]]; then
+# Prefer the system keyring when present (e.g. on Ubuntu CI runners).
+if [[ -s /usr/share/keyrings/ubuntu-archive-keyring.gpg ]]; then
+  KEYRING="/usr/share/keyrings/ubuntu-archive-keyring.gpg"
+elif [[ ! -s "$KEYRING" ]]; then
   echo "[*] fetching Ubuntu archive signing key"
   curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF6ECB3762474EDA9D21B7022871920D1991BC93C" \
     -o build/ubuntu-archive-keyring.pgp
@@ -65,6 +68,15 @@ stage_configure() {
   install -Dm644 build/plymouth/reddaft/reddaft.plymouth "$ROOTFS/usr/share/plymouth/themes/reddaft/reddaft.plymouth"
   install -Dm644 build/plymouth/reddaft/reddaft.script  "$ROOTFS/usr/share/plymouth/themes/reddaft/reddaft.script"
   chroot "$ROOTFS" bash -c 'apt-get install -y plymouth plymouth-themes 2>/dev/null; plymouth-set-default-theme reddaft 2>/dev/null; update-initramfs -u 2>/dev/null' || true
+
+  echo "[*] live operator account + getty autologin (so the OS is usable on boot)"
+  chroot "$ROOTFS" bash -c '
+    useradd -ms /bin/bash -G sudo agent 2>/dev/null || true
+    echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent
+    mkdir -p /etc/systemd/system/getty@tty1.service.d
+    printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin agent --noclear %%I \$TERM\n" \
+      > /etc/systemd/system/getty@tty1.service.d/autologin.conf
+  '
 }
 
 stage_kernel() {
@@ -92,8 +104,7 @@ stage_iso() {
   local ir; ir="$(ls "$ROOTFS/boot"/initrd.img-* | head -1)"
   cp "$kv" "$ISO_SRC/casper/vmlinuz"
   cp "$ir" "$ISO_SRC/casper/initrd.img"
-  mksquashfs "$ROOTFS" "$ISO_SRC/casper/filesystem.squashfs" -comp zstd -e "$ROOTFS/opt/daft" 2>/dev/null \
-    || mksquashfs "$ROOTFS" "$ISO_SRC/casper/filesystem.squashfs" -comp zstd
+  mksquashfs "$ROOTFS" "$ISO_SRC/casper/filesystem.squashfs" -comp zstd
   cat > "$ISO_SRC/boot/grub/grub.cfg" <<'EOF'
 set timeout=10
 set default=0
