@@ -43,7 +43,7 @@ stage_bootstrap() {
   echo "[*] bootstrapping Ubuntu noble ($DEBARCH) -> $ROOTFS"
   mkdir -p "$ROOTFS"
   mmdebstrap --variant=minbase --arch="$DEBARCH" \
-    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,arc-theme,papirus-icon-theme,git,curl,wget,plymouth,plymouth-theme-script,plymouth-label" \
+    --include="linux-image-generic,casper,systemd,systemd-sysv,$GRUBPKG,grub-pc-bin,network-manager,sudo,locales,rsync,parted,xubuntu-core,lightdm,lightdm-gtk-greeter,xfce4-terminal,arc-theme,papirus-icon-theme,git,curl,wget,plymouth,plymouth-label" \
     --keyring="$KEYRING" \
     noble "$ROOTFS" \
     "deb $MIRROR noble main restricted universe" \
