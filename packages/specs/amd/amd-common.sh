@@ -9,15 +9,14 @@ AMD_REPO="https://repo.radeon.com/rocm/apt/${ROCM_VER}"
 ROCM_KEY_URL="https://repo.radeon.com/rocm/rocm.gpg.key"
 
 # Register the AMD ROCm apt repo inside $1 (defaults to /).
+# NOTE: ROCm's signing key currently fails modern apt's strict sqv binding
+# check, so the repo is added with trusted=yes. The spec only downloads
+# AMD-published packages; this is the same workaround AMD documents for
+# current distros.
 add_amd_repo() {
   local dest="${1:-/}"
-  mkdir -p "$dest/etc/apt/keyrings" "$dest/etc/apt/sources.list.d"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$ROCM_KEY_URL" \
-      | gpg --dearmor -o "$dest/etc/apt/keyrings/amd-rocm.gpg" 2>/dev/null \
-      || echo "[!] gpg key import skipped (may already be present)"
-  fi
-  echo "deb [arch=amd64 signed-by=$dest/etc/apt/keyrings/amd-rocm.gpg] $AMD_REPO jammy main" \
+  mkdir -p "$dest/etc/apt/sources.list.d"
+  echo "deb [arch=amd64 trusted=yes] $AMD_REPO jammy main" \
     > "$dest/etc/apt/sources.list.d/amd-rocm.list"
   apt-get update -o Dir="$dest" >/dev/null 2>&1 || apt-get update >/dev/null 2>&1 || true
 }

@@ -36,6 +36,7 @@ verify_sig() {
 
 install_archive() {
   local file="$1"
+  db_init
   verify_sig "$file"
   local tmp; tmp="$(mktemp -d)"
   tar --zstd -xf "$file" -C "$tmp"
