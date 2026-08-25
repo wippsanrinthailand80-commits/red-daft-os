@@ -13,6 +13,8 @@ permissions:
 jobs:
   build-iso:
     runs-on: ubuntu-latest
+    env:
+      RD_ARCH: amd64   # force x86_64 ISO regardless of runner arch
     steps:
       - uses: actions/checkout@v4
 

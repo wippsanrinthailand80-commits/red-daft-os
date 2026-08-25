@@ -3,12 +3,20 @@
 # Host deps: mmdebstrap, squashfs-tools, xorriso, grub-efi-<arch>-bin, grub-common
 set -euo pipefail
 
-ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64)  DEBARCH=amd64; GRUBPKG=grub-efi-amd64-bin; MIRROR="http://archive.ubuntu.com/ubuntu";;
-  aarch64) DEBARCH=arm64; GRUBPKG=grub-efi-arm64-bin; MIRROR="http://ports.ubuntu.com/ubuntu-ports";;
-  *) echo "unsupported arch: $ARCH"; exit 1;;
-esac
+if [[ -n "${RD_ARCH:-}" ]]; then
+  case "$RD_ARCH" in
+    amd64|x86_64) DEBARCH=amd64; GRUBPKG=grub-efi-amd64-bin; MIRROR="http://archive.ubuntu.com/ubuntu";;
+    arm64|aarch64) DEBARCH=arm64; GRUBPKG=grub-efi-arm64-bin; MIRROR="http://ports.ubuntu.com/ubuntu-ports";;
+    *) echo "unsupported RD_ARCH: $RD_ARCH"; exit 1;;
+  esac
+else
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64)  DEBARCH=amd64; GRUBPKG=grub-efi-amd64-bin; MIRROR="http://archive.ubuntu.com/ubuntu";;
+    aarch64) DEBARCH=arm64; GRUBPKG=grub-efi-arm64-bin; MIRROR="http://ports.ubuntu.com/ubuntu-ports";;
+    *) echo "unsupported arch: $ARCH"; exit 1;;
+  esac
+fi
 
 WORK="$(pwd)/build/work"
 ROOTFS="$WORK/rootfs"
