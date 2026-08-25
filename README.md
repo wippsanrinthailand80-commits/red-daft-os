@@ -24,7 +24,14 @@ AI developers, and power users. 100% free and open-source.
 ```bash
 sudo bash build/build-iso.sh      # bootstrap -> configure -> kernel -> plymouth -> ISO
 ```
-Requires `mmdebstrap`, `squashfs-tools`, `xorriso`, and kernel headers in the rootfs.
+Requires `mmdebstrap`, `squashfs-tools`, `xorriso`, `grub-efi-<arch>-bin`, and root privileges (`CAP_SYS_ADMIN`).
+
+## Container (runs anywhere, no boot required)
+```bash
+docker build -t red-daft-os .
+docker run -it --rm red-daft-os          # boots into the ID card + daft-shell
+```
+CI builds this image on every push (`.github/workflows/build.yml` → `container-image`).
 
 ## Package manager
 ```bash

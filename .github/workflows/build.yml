@@ -15,7 +15,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bash jq gcc make python3 gpg curl dpkg-dev \
             linux-headers-$(uname -r) device-tree-compiler
-
       - name: Syntax-check all shell scripts
         run: |
           fail=0
@@ -52,3 +51,17 @@ jobs:
           echo "explain buffer overflow basics for a CTF" \
             | python3 ai/daft-ai-guard.py; test ${PIPESTATUS[1]} -eq 0 \
             && echo "guard allowed benign research OK"
+
+  container-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Red Daft OS container image
+        run: docker build -t red-daft-os:ci .
+
+      - name: Smoke test (branding + tools present)
+        run: |
+          docker run --rm red-daft-os:ci bash -lc \
+            'test -x /usr/local/bin/daft-shell && test -x /usr/local/bin/daft-pkg \
+             && test -f /usr/local/lib/daft/logo.txt && echo "container smoke OK"'

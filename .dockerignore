@@ -1,10 +1,9 @@
-# Build artifacts
+.git
 build/work/
-iso/*.iso
+iso/
+*.iso
 *.daft
 *.ko
 kernel/daft-defmon/*.o
 kernel/daft-defmon/Module.symvers
 kernel/daft-defmon/modules.order
-*.tmp
-build/ubuntu-archive-keyring.*
