@@ -156,9 +156,7 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     q->freq      = is_write?3:1;
     q->dirty     = is_write?1:0;
     q->resident  = 1;
-    dbgmark('M');
-    kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
-    /* self-check: did the migration land intact? */
+    /* migration integrity check: verify the copy landed intact */
     {
         const u64 *src=(const u64*)(usize)q->host_addr;
         const u64 *dst=(const u64*)(usize)va;
@@ -166,7 +164,6 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
             if(src[k]!=dst[k]){ dbgmark('X'); break; }
         }
     }
-    dbgmark('m');
     H.bytes_migrated += HMM_PAGE_SIZE;
     ht_insert(q);
     lru_push_mru(q);

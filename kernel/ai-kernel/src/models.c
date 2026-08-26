@@ -7,10 +7,13 @@
 
 typedef struct { const char *name; u32 npages; s32 (*op)(s32); } model_t;
 
-static s32 op_sos(s32 w){ return w*w; }
+/* All ops use u32 arithmetic with defined wrap-around: w*w overflows s32
+ * by design, and UB there makes results compiler-dependent (it broke the
+ * correctness gate between two gcc builds). Wrap explicitly instead. */
+static s32 op_sos(s32 w){ return (s32)((u32)w * (u32)w); }
 static s32 op_abs(s32 w){ return w<0?-w:w; }
 static s32 op_xor(s32 w){ w^=w<<13; w^=w>>7; return w&0xFFFF; }
-static s32 op_inc(s32 w){ return w+1; }
+static s32 op_inc(s32 w){ return (s32)((u32)w + 1u); }
 
 /* host buffers (the "main RAM" backing store): 4 models x 4MB in .bss */
 #define MODEL_PAGES 256           /* 1 MB each — keeps smoke fast; pool still oversubscribed */
