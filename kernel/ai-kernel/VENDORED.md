@@ -1,26 +1,23 @@
-# kernel/ai-kernel — vendored from the AI-Kernel project
+# kernel/ai-kernel — Red Daft AI-Kernel v0.2 "Demo Box"
 
-Upstream: standalone "AI-Kernel (QEMU / from-scratch x86_64)" repository
-(single-commit tree, no public remote at vendor time). Vendored into Red Daft OS
-to become the second bootable kernel of the distribution.
+v0.1 was vendored from the standalone AI-Kernel experiment (see git history
+and the original upload tree). v0.2 is a fresh implementation built to spec:
 
-## What it is
-A from-scratch Multiboot2 x86_64 kernel demonstrating the Heterogeneous Memory
-Manager: a paravirtual accelerator with a small VRAM pool, GPU-style page
-faults, LRU eviction and host<->device migration — with an automatic
-correctness gate (every compute result is verified against a CPU reference).
+- x86_64 from scratch: Multiboot2 -> long mode -> identity-mapped 4GB,
+  buddy PMM, kernel heap, spinlocks, IDT/PIT/PS2-keyboard, PCI scan.
+- **HMM v2** (the point of the exercise): an elastic VRAM pool that is
+  *donated from / restored to* the physical allocator, LRU eviction with
+  frequency tie-break, sequential prefetch, dirty writeback — streaming
+  16MB of models through <=2MB of pool with automatic CPU-reference
+  verification on every run.
+- **Demo Box**: interactive serial shell (`help`, `verify`, `stats`,
+  `restore`, `pci`, `demo`, ...). Boots into a full self-test + demo.
 
-## Build
+## Build & smoke
 ```bash
-make -C kernel/ai-kernel        # -> build/ai-kernel.elf (needs x86_64 gcc)
-make -C kernel/ai-kernel run    # boots under QEMU, serial on stdio
+make -C kernel/ai-kernel            # build/ai-kernel.elf
+make -C kernel/ai-kernel smoke      # QEMU headless, gates serial output
 ```
-The ISO pipeline builds it automatically and installs it as:
-- `/boot/ai-kernel.elf` in the live system (GRUB entry: "Red Daft AI-Kernel"),
-- `/opt/daft/kernel/ai-kernel/` sources for hacking inside the OS.
+CI: `.github/workflows/ai-kernel.yml` runs both on every push. The ISO
+pipeline installs the ELF as a second GRUB entry ("Red Daft AI-Kernel").
 
-## Relationship to Red Daft OS
-This kernel is the proving ground for the `accel_hal` seam and the Daft
-Interchange IR (see docs/): the same HMM logic runs natively here, and ports to
-the hardened Linux 7.1.10 kernel via CONFIG_HMM_MIRROR/ZONE_DEVICE (enabled in
-build/configs/kernel-config.x86_64).

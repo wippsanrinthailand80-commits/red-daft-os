@@ -1,111 +1,134 @@
-/* boot.S - from-scratch x86_64 entry for Multiboot2 (QEMU -kernel).
- * Responsibilities: zero BSS, build identity page tables (0..512MB, 2MB pages),
- * enable PAE+long mode, load a 64-bit GDT, then call kernel_main(mbi) in 64-bit.
- * NO vendor/firmware dependencies: this is pure CPU bootstrap. */
-
+/* boot.S — Multiboot2 -> long mode -> identity-mapped 4GB -> kernel_main */
 .code32
 .section .multiboot, "a"
 .align 8
 mb2_header:
-    .long 0xe85250d6            /* Multiboot2 magic */
-    .long 0                     /* architecture = 0 (x86 32-bit) */
-    .long mb2_header_end - mb2_header
-    .long -(0xe85250d6 + 0 + (mb2_header_end - mb2_header))
-    .long 0                     /* terminating tag: type 0 */
-    .long 8                     /* terminating tag: size 8 */
-mb2_header_end:
+    .long 0xe85250d6
+    .long 0
+    .long mb2_end - mb2_header
+    .long -(0xe85250d6 + 0 + (mb2_end - mb2_header))
+    .long 0
+    .long 8
+mb2_end:
 
 .section .rodata
-/* Minimal GDT: null, 64-bit code (0x08), 64-bit data (0x10). */
+.align 16
 gdt:
     .quad 0x0000000000000000
-    .quad 0x00AF9A000000FFFF    /* 64-bit code */
-    .quad 0x00AF92000000FFFF    /* 64-bit data */
+    .quad 0x00AF9A000000FFFF        /* 64-bit code */
+    .quad 0x00AF92000000FFFF        /* 64-bit data */
 gdt_end:
-gdtr:
-    .word gdt_end - gdt - 1
-    .long gdt
+gdtr: .word gdt_end - gdt - 1; .long gdt
 
-.section .bss, "aw"
+.section .bss
 .align 4096
-.global pml4
-pml4:  .skip 4096
-.global pdpt
-pdpt:  .skip 4096
-.global pd0
-pd0:   .skip 4096
-.align 16
-boot_stack:     .skip 65536
-.global boot_stack_top
-boot_stack_top:
+pml4:  .space 4096
+pdpt:  .space 4096
+pd0:   .space 4096
+pd1:   .space 4096
+pd2:   .space 4096
+pd3:   .space 4096
+stack_bottom:
+.space 16384
+stack_top:
 
 .section .text
 .global _start
 _start:
+    cli
+    mov $stack_top, %esp
+    and $-8, %esp
+
+    /* zero .bss (freestanding: nobody does it for us) */
+    lea bss_start, %edi
+    lea bss_end, %ecx
+    sub %edi, %ecx
+    shr $2, %ecx
+    xor %eax, %eax
     cld
-    /* Zero BSS (page tables live here; must be cleared before use). */
-    movl $__bss_start, %edi
-    movl $_end, %ecx
-    subl %edi, %ecx
-    xorl %eax, %eax
-    rep stosb
+    rep stosl
 
-    movl $boot_stack_top, %esp
-    movl %ebx, %esi            /* stash Multiboot2 info pointer */
+    /* build identity page tables: PML4[0]->PDPT->4 PDs, 2MB pages = 4GB */
+    lea pml4, %edi
+    lea pdpt, %eax
+    or  $3, %eax
+    mov %eax, (%edi)
 
-    /* PML4[0] -> PDPT */
-    movl $pml4, %eax
-    movl $pdpt, %ebx
-    orl  $0x3, %ebx
-    movl %ebx, (%eax)
+    lea pdpt, %edi
+    lea pd0, %eax
+    or  $3, %eax
+    mov %eax, (%edi)                 /* PDPT[0] -> pd0 : 0..1GB */
+    lea pd1, %eax
+    or  $3, %eax
+    mov %eax, 8(%edi)                /* PDPT[1] -> pd1 : 1..2GB */
+    lea pd2, %eax
+    or  $3, %eax
+    mov %eax, 16(%edi)
+    lea pd3, %eax
+    or  $3, %eax
+    mov %eax, 24(%edi)
 
-    /* PDPT[0] -> PD0 */
-    movl $pdpt, %eax
-    movl $pd0, %ebx
-    orl  $0x3, %ebx
-    movl %ebx, (%eax)
+    /* fill each PD with 512 x 2MB present|rw|huge entries */
+    lea pd0, %edi
+    mov $0x83, %eax                  /* first entry: phys 0 */
+    mov $512*4, %ecx
+fill:
+    mov %eax, (%edi)
+    add $0x200000, %eax              /* next 2MB */
+    add $4, %edi
+    loop fill
 
-    /* PD0[i] -> 2MB identity-mapped page i */
-    movl $0, %ecx
-    movl $pd0, %edx
-1:
-    movl %ecx, %eax
-    shll $21, %eax             /* i * 2MB */
-    orl  $0x83, %eax           /* P | RW | PS(2MB) */
-    movl %eax, (%edx, %ecx, 8)
-    incl %ecx
-    cmpl $256, %ecx
-    jl   1b
-
-    /* Enable PAE */
-    movl %cr4, %eax
-    orl  $0x20, %eax
-    movl %eax, %cr4
-    /* Load CR3 */
-    movl $pml4, %eax
-    movl %eax, %cr3
-    /* Set EFER.LME */
-    movl $0xC0000080, %ecx
+    /* enable PAE, page tables, long mode + paging */
+    mov %cr4, %eax
+    or  $0x20, %eax                  /* PAE */
+    mov %eax, %cr4
+    lea pml4, %eax
+    mov %eax, %cr3
+    mov $0xC0000080, %ecx            /* EFER MSR */
     rdmsr
-    orl  $0x100, %eax
+    or  $0x100, %eax                 /* LME: long mode enable */
     wrmsr
-    /* Enable paging -> IA-32e compatibility mode */
-    movl %cr0, %eax
-    orl  $0x80000000, %eax
-    movl %eax, %cr0
+    mov %cr0, %eax
+    or  $0x80010000, %eax            /* PG | PAE-bit via CR4 done; PG=bit31 */
+    mov %eax, %cr0
 
     lgdt gdtr
-    ljmp $0x08, $start64        /* switch to 64-bit code segment */
+    ljmp $0x08, $long_mode
 
 .code64
-start64:
-    movw $0x10, %ax
-    movw %ax, %ds
-    movw %ax, %es
-    movw %ax, %ss
-    movw %ax, %fs
-    movw %ax, %gs
-    movq $boot_stack_top, %rsp
-    movl %esi, %edi            /* mbi -> rdi (zero-extended) */
+long_mode:
+    xor %ax, %ax
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %ss
+    mov %ax, %fs
+    mov %ax, %gs
+    mov $stack_top, %rsp
+    /* pass multiboot info pointer in edi/ebx? keep ABI simple: zero args */
+    xor %rdi, %rdi
     call kernel_main
+halt:
+    cli
     hlt
+    jmp halt
+
+/* ---- IRQ stubs: preserve caller-saved regs, call C handlers ---- */
+.global irq0_stub
+irq0_stub:
+    push %rax; push %rcx; push %rdx; push %rsi; push %rdi
+    push %r8;  push %r9;  push %r10; push %r11
+    cld
+    call irq_timer_c
+    pop %r11; pop %r10; pop %r9; pop %r8
+    pop %rdi; pop %rsi; pop %rdx; pop %rcx; pop %rax
+    iretq
+
+.global irq1_stub
+irq1_stub:
+    push %rax; push %rcx; push %rdx; push %rsi; push %rdi
+    push %r8;  push %r9;  push %r10; push %r11
+    cld
+    call irq_kbd_c
+    pop %r11; pop %r10; pop %r9; pop %r8
+    pop %rdi; pop %rsi; pop %rdx; pop %rcx; pop %rax
+    iretq

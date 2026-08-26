@@ -1,21 +1,12 @@
+/* linker.ld — .multiboot first at 1MB, then text/rodata/data/bss */
 ENTRY(_start)
-
-SECTIONS {
-    . = 0x100000;                /* load at 1MB (Multiboot convention) */
-
-    .text : {
-        *(.multiboot)           /* Multiboot2 header MUST be first */
-        *(.text .text.*)
-    }
-
-    .rodata : { *(.rodata .rodata.*) }
-    .data   : { *(.data .data.*) }
-
-    .bss (NOLOAD) : {
-        __bss_start = .;
-        *(.bss .bss.* COMMON)
-        _end = .;
-    }
-
-    /DISCARD/ : { *(.note*) *(.eh_frame*) *(.comment) }
+SECTIONS
+{
+    . = 1M;
+    .multiboot : { KEEP(*(.multiboot)) }
+    .text : { *(.text*) }
+    .rodata : { *(.rodata*) }
+    .data : { *(.data*) }
+    .bss : { bss_start = .; *(COMMON) *(.bss*) ; bss_end = .; }
+    kernel_end = .;
 }

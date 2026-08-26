@@ -1,0 +1,39 @@
+name: ai-kernel
+# Builds the bare-metal Demo Box kernel and smoke-tests it under QEMU:
+# boots, streams 16MB of models through a <=2MB HMM pool, verifies every
+# result against CPU references, proves elastic restore — all headless.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build AI-Kernel ELF
+        run: |
+          make -C kernel/ai-kernel clean
+          make -C kernel/ai-kernel
+
+      - name: QEMU smoke test (serial output gate)
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86
+          cd kernel/ai-kernel
+          timeout 30 qemu-system-x86_64 -kernel build/ai-kernel.elf \
+            -m 256 -display none -serial stdio </dev/null | tee smoke.log || true
+          grep -q "ALL MODELS MATCH" smoke.log
+          grep -q "SELF-TEST PASS"   smoke.log
+          grep -q "elasticity check: returned 128 pages" smoke.log
+          echo "AI-KERNEL SMOKE PASS"
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-kernel-elf
+          path: kernel/ai-kernel/build/ai-kernel.elf
