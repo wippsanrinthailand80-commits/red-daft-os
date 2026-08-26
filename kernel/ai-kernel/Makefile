@@ -41,7 +41,7 @@ smoke: all isoboot/boot/ai-kernel.elf isoboot/boot/grub/grub.cfg
 	    -debugcon file:build/debug.log -global isa-debugcon.iobase=0xe9 \
 	    -d int,cpu_reset -D build/qdebug.log </dev/null || true
 	echo "--- debugcon ---"; cat build/debug.log 2>/dev/null || true; echo
-	cat build/qdebug.log | tail -25 || true
+	cat build/qdebug.log | tail -140 || true
 	grep -q "ALL MODELS MATCH" smoke.log && echo "SMOKE PASS"
 
 isoboot/boot/ai-kernel.elf: $(BUILD)/ai-kernel.elf

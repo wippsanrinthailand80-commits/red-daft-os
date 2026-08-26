@@ -63,6 +63,7 @@ void idt_init(void){
     set_gate(33,(u64)irq1_stub);
     idtp.limit = sizeof(idt)-1; idtp.base = (u64)idt;
     __asm__ volatile("lidt %0"::"m"(idtp));
+    dbgmark('i');
     /* remap PIC to 32..47 */
     outb(0x20,0x11); io_wait(); outb(0xA0,0x11); io_wait();
     outb(0x21,0x20); outb(0xA1,0x28);
@@ -71,6 +72,7 @@ void idt_init(void){
     /* mask everything except: IRQ0 timer, IRQ1 kbd, IRQ2 cascade */
     outb(0x21,0xF8);
     outb(0xA1,0xFF);
+    dbgmark('I');
     __asm__ volatile("sti");
 }
 
