@@ -57,8 +57,25 @@ static void lru_unlink(hmm_page_t *p){
     p->lru_prev=p->lru_next=NULL;
 }
 
-/* ------------------------- elastic pool --------------------------- */
+/* --------------------- page-metadata slab --------------------------
+ * Fixed-size allocation from a static pool: immune to heap fragmentation
+ * under the heavy alloc/free churn of streaming eviction. */
 #define MAX_SLOTS 4096
+static hmm_page_t page_slab[MAX_SLOTS];
+static u8          slab_used[MAX_SLOTS];
+static u32         slab_inuse;
+
+static hmm_page_t *page_alloc(void){
+    for(u32 i=0;i<MAX_SLOTS;i++)
+        if(!slab_used[i]){ slab_used[i]=1; slab_inuse++; return &page_slab[i]; }
+    return NULL;
+}
+static void page_free(hmm_page_t *p){
+    u32 idx = (u32)(p - page_slab);
+    if(idx<MAX_SLOTS && slab_used[idx]){ slab_used[idx]=0; slab_inuse--; }
+}
+
+/* ------------------------- elastic pool --------------------------- */
 static u64 slot_freelist[MAX_SLOTS];
 static u32 nfree_slots;
 
@@ -116,7 +133,7 @@ static int evict_one(void){
     slot_free(v->vram_addr);          /* recycle the device slot */
     H.evictions++;
     H.bytes_migrated += HMM_PAGE_SIZE;
-    kfree(v);
+    page_free(v);
     return 0;
 }
 
@@ -131,8 +148,8 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     if(ensure_capacity()!=0) return NULL;
     hmm_model_t *mo=&models[m];
     u64 va = slot_alloc();
-    hmm_page_t *q = kmalloc(sizeof(*q));
-    if(!q || !va){ if(q) kfree(q); return NULL; }
+    hmm_page_t *q = page_alloc();
+    if(!q || !va){ if(q) page_free(q); return NULL; }
     q->model_id=m; q->page_idx=idx;
     q->host_addr = mo->host_base + (u64)idx*HMM_PAGE_SIZE;
     q->vram_addr = va;
@@ -222,7 +239,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
                         if(p==H.lru_head||p==H.lru_tail||p->lru_prev||p->lru_next)
                             lru_unlink(p);
                         /* slot belongs to the run being dropped: drop, not recycle */
-                        kfree(p);
+                        page_free(p);
                         again=1;
                         break;
                     }
