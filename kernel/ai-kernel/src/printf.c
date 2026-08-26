@@ -46,9 +46,6 @@ void kprintf(const char *f, ...){
     }
     __builtin_va_end(ap);
 }
-    }
-    __builtin_va_end(ap);
-}
 
 void panic(const char *msg){
     con_puts("\nPANIC: "); con_puts(msg);
