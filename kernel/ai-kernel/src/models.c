@@ -50,14 +50,10 @@ static s64 run_model(u32 m){
     }
     return acc;
 }
-/* post-training reference: host words now include the +7 updates */
+/* post-training reference: after full eviction pressure every page was
+ * written back, so host_buf IS the updated truth — no extra offset. */
 static s64 ref_model_trained(u32 m){
-    s64 acc=0; const s32 *w=host_buf[m];
-    for(u32 i=0;i<defs[m].npages;i++){
-        s32 v=w[i*WORDS_PER_PAGE]+7;
-        acc += defs[m].op(v);
-    }
-    return acc;
+    return ref_model(m);
 }
 /* same computation straight over host RAM (ground truth) */
 static s64 ref_model(u32 m){

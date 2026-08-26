@@ -153,7 +153,7 @@ static int evict_scratch(void){
 static int ensure_capacity(hmm_pool_t pid){
     pool_t*L=&PL[pid];
     if(pool_has_slot(L)) return 0;
-    if(pid!=POOL_KV && pool_grow(pid)==0) return 0;
+    if(pool_grow(pid)==0) return 0;      /* every pool grows to its quota */
     if(pid==POOL_WEIGHTS) return evict_weights();
     if(pid==POOL_SCRATCH)return evict_scratch();
     return -1;                           /* KV: explicit OOM, never evicts */
