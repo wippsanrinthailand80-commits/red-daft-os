@@ -167,7 +167,7 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     hmm_page_t*q=page_alloc();
     if(!q||!va){ if(q)page_free(q); return NULL; }
     q->model_id=m;q->page_idx=idx;
-    q->host_addr=models[m].host_base+(u64)idx*HMM_PAGE_SIZE;
+    q->host_addr=models[m].host_base ? models[m].host_base+(u64)idx*HMM_PAGE_SIZE : 0;
     q->vram_addr=va; q->pool=(u8)pid;
     q->freq=is_write?3:1; q->dirty=is_write?1:0; q->resident=1;
     if(q->host_addr){
