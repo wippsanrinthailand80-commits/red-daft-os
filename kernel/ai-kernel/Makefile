@@ -41,7 +41,7 @@ smoke: all isoboot/boot/ai-kernel.elf isoboot/boot/grub/grub.cfg
 	    -debugcon file:build/debug.log -global isa-debugcon.iobase=0xe9 </dev/null || true
 	echo "--- debugcon tail ---"; tail -c 400 build/debug.log 2>/dev/null || true; echo
 	N=$$(grep -c '-> MATCH' smoke.log 2>/dev/null || echo 0); \
-	  [ "$$N" -eq 4 ] || { echo "expected 4 MATCH, got $$N"; exit 1; }
+	  [ "$$N" -eq 7 ] || { echo "expected 7 MATCH (4 init +2 pressure +1 trained), got $$N"; exit 1; }
 	grep -q "WRITEBACK OK"  smoke.log
 	grep -q "\[kv\] OK"     smoke.log
 	grep -q "\[scratch\] OK" smoke.log

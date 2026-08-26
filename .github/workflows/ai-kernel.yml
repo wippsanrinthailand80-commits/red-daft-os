@@ -29,7 +29,7 @@ jobs:
           make smoke || true
           echo "----- serial output -----"; cat smoke.log 2>/dev/null || true; echo "-------------------------"
           N=$(grep -c -- '-> MATCH' smoke.log || true)
-          [ "$N" -eq 4 ] || { echo "expected 4 verified models, got $N"; exit 1; }
+          [ "$N" -eq 7 ] || { echo "expected 7 MATCH (4 init+2 pressure+1 trained), got $N"; exit 1; }
           grep -q "WRITEBACK OK"       smoke.log
           grep -q "\[kv\] OK"         smoke.log
           grep -q "\[scratch\] OK"    smoke.log
