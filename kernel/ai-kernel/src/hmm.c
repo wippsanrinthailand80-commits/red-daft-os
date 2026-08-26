@@ -156,6 +156,7 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     q->freq      = is_write?3:1;
     q->dirty     = is_write?1:0;
     q->resident  = 1;
+    kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
     /* migration integrity check: verify the copy landed intact */
     {
         const u64 *src=(const u64*)(usize)q->host_addr;
