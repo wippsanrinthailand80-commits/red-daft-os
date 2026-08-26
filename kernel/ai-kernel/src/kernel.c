@@ -73,7 +73,7 @@ void kernel_main(u64 mbi){
         u64 vb=s2>=0?kv_session_alloc(s2,64):0;
         if(s2>=0) kv_session_end(s2);
         if(okv&&vb) kprintf("[kv] OK session alloc/free/realloc\n");
-        else { kprintf("[kv] FAIL (va=%llx vb=%llx)\n",(unsigned long long)va,(unsigned long long)vb); ok=0; }
+        else { kprintf("[kv] FAIL (va=%llu vb=%llu)\n",(unsigned long long)va,(unsigned long long)vb); ok=0; }
     }
     /* scratch ring: rotation under pressure */
     dbgmark('D');
@@ -93,7 +93,7 @@ void kernel_main(u64 mbi){
             int id = hmm_register_model_p(ten_names[pid], ten_pool_buf, 1, (hmm_pool_t)pid);
             if(id<0){ kprintf("[pool %d %s] register FAIL\n", pid, ten_names[pid]); ok=0; continue; }
             u64 va = hmm_fault((u32)id, 0);
-            if(va) kprintf("[pool %d %s] OK va=%llx\n", pid, ten_names[pid], (unsigned long long)va);
+            if(va) kprintf("[pool %d %s] OK va=%p\n", pid, ten_names[pid], (void*)(usize)va);
             else { kprintf("[pool %d %s] FAIL fault\n", pid, ten_names[pid]); ok=0; }
         }
         kprintf("[pool] 10-pool exercise done\n");

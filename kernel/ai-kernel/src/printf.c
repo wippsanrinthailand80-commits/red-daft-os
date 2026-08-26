@@ -33,9 +33,15 @@ void kprintf(const char *f, ...){
         case 's':{const char*s=__builtin_va_arg(ap,const char*);puts_(s?s:"(null)");f=(char*)spec;break;}
         case 'c': con_putc((char)__builtin_va_arg(ap,int));           f=(char*)spec; break;
         case 'l':
-            if(spec[0]=='l'&&spec[1]=='l'&&(spec[2]=='d'||spec[2]=='u')){
-                num(__builtin_va_arg(ap,u64),10,spec[2]=='d');
+            if(spec[0]=='l'&&spec[1]=='l'&&(spec[2]=='d'||spec[2]=='u'||spec[2]=='x')){
+                int base = (spec[2]=='x') ? 16 : 10;
+                num(__builtin_va_arg(ap,u64),base,spec[2]=='d');
                 f=(char*)spec+2;
+            } else if(spec[0]=='x'||spec[0]=='d'||spec[0]=='u'){
+                // handle %lx, %ld, %lu (single l)
+                int base = (spec[0]=='x') ? 16 : 10;
+                num((u64)__builtin_va_arg(ap,unsigned long),base,spec[0]=='d');
+                f=(char*)spec;
             } else {
                 con_putc('%');
             }

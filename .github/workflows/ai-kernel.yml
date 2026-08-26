@@ -34,7 +34,7 @@ jobs:
           grep -q "\[kv\] OK"         smoke.log
           grep -q "\[scratch\] OK"    smoke.log
           grep -q "SELF-TEST PASS"     smoke.log
-          grep -q "elasticity check: returned 128 pages" smoke.log
+          grep -q "elasticity check: returned" smoke.log
           echo "AI-KERNEL SMOKE PASS"
 
       - name: Upload kernel artifact

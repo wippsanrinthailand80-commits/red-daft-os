@@ -359,7 +359,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
     for(int pi=POOL_COUNT-1;pi>=0 && freed<(u64)target_pages;pi--){
         pool_t*L=&PL[pi];
         spin_lock(&G.lock);
-        while(freed<(u64)target_pages && L->nruns>1){
+        while(freed<(u64)target_pages && L->nruns>0){
             run_t*r=&L->runs[L->nruns-1];
             int again=1;
             while(again){
