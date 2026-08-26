@@ -69,11 +69,11 @@ void idt_init(void){
     outb(0x21,0x20); outb(0xA1,0x28);
     outb(0x21,0x04); outb(0xA1,0x02);
     outb(0x21,0x01); outb(0xA1,0x01);
-    /* mask everything except: IRQ0 timer, IRQ1 kbd, IRQ2 cascade */
-    outb(0x21,0xF8);
+    /* mask everything except: IRQ0 timer (kbd enabled later) */
+    outb(0x21,0xFE);
     outb(0xA1,0xFF);
     dbgmark('I');
-    __asm__ volatile("sti");
+    /* sti deliberately NOT here: caller enables interrupts after PIT setup */
 }
 
 void pit_init(u32 hz){

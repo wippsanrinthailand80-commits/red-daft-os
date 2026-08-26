@@ -18,7 +18,10 @@ void kernel_main(u64 mbi){
     heap_init();
     dbgmark('3');
     idt_init();
+    dbgmark('p');
     pit_init(100);                 /* 100 Hz tick */
+    dbgmark('s');
+    __asm__ volatile("sti");
     dbgmark('4');
     pci_scan();
 
