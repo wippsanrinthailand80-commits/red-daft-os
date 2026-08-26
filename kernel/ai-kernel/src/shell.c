@@ -8,7 +8,18 @@ u32  model_count(void);
 
 static char line[128]; static u32 len;
 
+/* ---- kernel-switch state (bare-metal: RAM-only hint; persistent via daft-kernel on Linux side) ---- */
+static char next_target[16] = {0};   /* "linux" | "aik" | "" (=keep) */
+
 static void prompt(void){ kprintf("\ndaftbox> "); }
+
+/* tiny helpers */
+static int starts_with(const char *s, const char *pfx){
+    while(*pfx) if(*s++ != *pfx++) return 0;
+    return 1;
+}
+static const char *skip_spaces(const char *p){ while(*p==' ') p++; return p; }
+static int streql(const char *a,const char *b){ return kstrcmp(a,b)==0; }
 
 static void help(void){
     kprintf("commands:\n"
@@ -20,6 +31,12 @@ static void help(void){
             "  mem              memory map summary\n"
             "  uptime           ticks since boot\n"
             "  demo             full showcase (verify all + stats)\n"
+            "  kernel status    show running kernel + HMM pools\n"
+            "  kernel list      list bootable kernels (GRUB menu)\n"
+            "  kernel switch <name>  set next-boot target: aik|linux (hint; use daft-kernel on Linux for persistence)\n"
+            "  kernel reboot [name]  set target and reboot now\n"
+            "  reboot [name]    alias for kernel reboot\n"
+            "  uname            alias for kernel status\n"
             "  clear|about|help\n");
 }
 
@@ -36,6 +53,92 @@ static void do_verify(const char *arg){
     }
 }
 
+/* ---- kernel subcommands ---- */
+static void kernel_status(void){
+    kprintf("kernel: Red Daft AI-Kernel v0.2 'Demo Box' (HMM v3)\n");
+    kprintf("arch:   x86_64 bare-metal | multiboot2 | buddy PMM | PIT 100Hz\n");
+    kprintf("uptime: %llu ticks (~%llus)\n", ticks(), ticks()/100);
+    kprintf("next:   %s\n", next_target[0] ? next_target : "(default)");
+    hmm_stats();
+    kprintf("[pmm]  free=%lluKB total=%lluKB\n", pmm_free_pages()*4, pmm_total()/1024);
+}
+static void kernel_list(void){
+    kprintf("boot entries (GRUB):\n");
+    kprintf("  * aik    Red Daft AI-Kernel v0.2 — experimental bare-metal HMM  [running]\n");
+    kprintf("    linux  Red Daft OS 0.2 — Daft-Kernel 7.1.10 (Live)            [reboot to switch]\n");
+    kprintf("    linux-safe  Red Daft OS 0.2 — safe graphics (nomodeset)\n");
+    if(next_target[0]) kprintf("next boot hint: %s (select in GRUB or use daft-kernel on Linux)\n", next_target);
+    else kprintf("hint: 'kernel switch linux' + 'reboot' to try the Linux kernel; 'daft-kernel set <name>' on Linux makes it persistent.\n");
+}
+static void kernel_switch(const char *arg){
+    arg = skip_spaces(arg);
+    if(!*arg){ kprintf("usage: kernel switch <aik|linux|linux-safe>\n"); kernel_list(); return; }
+    /* normalize */
+    const char *norm=NULL;
+    if(streql(arg,"aik")||streql(arg,"ai-kernel")||streql(arg,"demo")) norm="aik";
+    else if(streql(arg,"linux")||streql(arg,"daft")||streql(arg,"daft-kernel")) norm="linux";
+    else if(streql(arg,"linux-safe")||streql(arg,"safe")) norm="linux-safe";
+    else { kprintf("unknown target '%s' (try: aik, linux, linux-safe)\n", arg); return; }
+    /* store RAM-only hint */
+    usize n=kstrlen(norm); if(n>=sizeof(next_target)) n=sizeof(next_target)-1;
+    kmemset(next_target,0,sizeof(next_target)); kmemcpy(next_target,norm,n);
+    kprintf("[kernel] next boot target set to '%s' (RAM hint)\n", next_target);
+    kprintf("  bare-metal: reboot and pick '%s' in the GRUB menu (timeout 10s).\n", next_target);
+    kprintf("  installed:  run 'sudo daft-kernel set %s' inside Linux to make it sticky via grub-reboot/set-default.\n", next_target);
+}
+static void kernel_reboot(const char *arg){
+    arg = skip_spaces(arg);
+    if(*arg){
+        /* allow 'kernel reboot linux' as shorthand for switch+reboot */
+        /* only accept known targets */
+        if(streql(arg,"aik")||streql(arg,"ai-kernel")||streql(arg,"demo")||
+           streql(arg,"linux")||streql(arg,"daft")||streql(arg,"daft-kernel")||
+           streql(arg,"linux-safe")||streql(arg,"safe")){
+            kernel_switch(arg);
+        } else {
+            kprintf("unknown target '%s'\n", arg); return;
+        }
+    } else if(next_target[0]){
+        kprintf("[kernel] rebooting to '%s' (hint)...\n", next_target);
+    } else {
+        kprintf("[kernel] rebooting...\n");
+    }
+    /* small grace for serial to flush */
+    for(volatile int i=0;i<200000;i++) io_wait();
+    if(next_target[0]) reboot_to(next_target);
+    else reboot();
+}
+static void do_kernel(const char *arg){
+    arg = skip_spaces(arg);
+    if(!*arg || streql(arg,"status") || streql(arg,"info") || streql(arg,"uname")){
+        kernel_status(); return;
+    }
+    if(streql(arg,"list") || streql(arg,"ls")){
+        kernel_list(); return;
+    }
+    if(starts_with(arg,"switch")){
+        const char *rest = arg+6;
+        kernel_switch(rest); return;
+    }
+    if(starts_with(arg,"reboot")){
+        const char *rest = arg+6;
+        kernel_reboot(rest); return;
+    }
+    if(streql(arg,"hmm") || streql(arg,"stats")){
+        hmm_stats(); return;
+    }
+    if(streql(arg,"help")){
+        kprintf("kernel subcommands:\n"
+                "  kernel status          show running kernel + HMM + uptime\n"
+                "  kernel list            list GRUB boot entries\n"
+                "  kernel switch <name>   set next-boot hint (aik|linux|linux-safe)\n"
+                "  kernel reboot [name]   switch (optional) and reboot now\n"
+                "  kernel hmm             alias for HMM stats\n");
+        return;
+    }
+    kprintf("unknown kernel subcommand '%s' (try: kernel help)\n", arg);
+}
+
 static void exec(char *l){
     /* tokenize: cmd + rest */
     char *sp=l; while(*sp==' ') sp++;
@@ -43,9 +146,10 @@ static void exec(char *l){
     while(*rest && *rest!=' ') rest++;
     if(*rest){ *rest=0; rest++; }
     if(!*sp) return;
+    rest = (char*)skip_spaces(rest);
     if(!kstrcmp(sp,"help")) help();
     else if(!kstrcmp(sp,"about"))
-        kprintf("Red Daft AI-Kernel v0.2 'Demo Box'\nbare-metal x86_64 | buddy PMM | HMM v2 elastic VRAM cache\n");
+        kprintf("Red Daft AI-Kernel v0.2 'Demo Box'\nbare-metal x86_64 | buddy PMM | HMM v3 elastic VRAM cache\n");
     else if(!kstrcmp(sp,"clear")) kprintf("\n\n\n");
     else if(!kstrcmp(sp,"ls")){
         for(u32 m=0;m<model_count();m++) kprintf("  [%u] %s\n",m,model_name(m));
@@ -72,6 +176,10 @@ static void exec(char *l){
         u64 f=hmm_restore_to_pmm(64);
         kprintf("elastic pool: returned %llu pages to main RAM on demand.\n",f);
     }
+    /* kernel-switch system */
+    else if(!kstrcmp(sp,"kernel") || !kstrcmp(sp,"kctl")) do_kernel(rest);
+    else if(!kstrcmp(sp,"reboot")) kernel_reboot(rest);
+    else if(!kstrcmp(sp,"uname")) kernel_status();
     else kprintf("unknown: '%s' (try help)\n", sp);
 }
 

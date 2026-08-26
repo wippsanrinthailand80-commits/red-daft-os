@@ -73,6 +73,10 @@ void irq_kbd_c(void);
 /* pci */
 void pci_scan(void);
 
+/* reboot — 8042 + CF9 + triple-fault fallback */
+void reboot(void) __attribute__((noreturn));
+void reboot_to(const char *target) __attribute__((noreturn));
+
 /* models */
 void models_init(void);
 int  model_verify(u32 m);

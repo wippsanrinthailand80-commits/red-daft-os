@@ -124,18 +124,31 @@ kernel (`kernel/ai-kernel/`) that proves the Heterogeneous Memory Manager:
 - **HMM v2**: an elastic VRAM pool that is *donated from* and *restored to*
   the physical allocator on demand; LRU eviction with frequency tie-break,
   sequential prefetch, dirty writeback; per-migration integrity checks.
-- Streams models through ≤2 MB of pool with automatic CPU-reference
-  verification of every result (CI-proven: 1024 faults, 512 evictions, 4/4 MATCH).
-- Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`.
+ - Streams models through ≤2 MB of pool with automatic CPU-reference
+   verification of every result (CI-proven: 1024 faults, 512 evictions, 4/4 MATCH).
+ - Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`
+   plus **`kernel` switcher** — `kernel status|list|switch|reboot`, `reboot`, `uname`
+   (pairs with Linux-side `daft-kernel`).
 
 ```bash
 make -C kernel/ai-kernel smoke   # builds ELF + boots it under QEMU headlessly
+# inside Demo Box:
+kernel list                # => aik (running), linux, linux-safe
+kernel switch linux        # hint for next boot
+kernel reboot linux        # switch + reboot now
+reboot                     # just reboot
+# inside Linux (installed or live):
+daft-kernel status
+sudo daft-kernel set aik
+sudo daft-kernel next linux && sudo reboot
 ```
 
 Both kernels boot from the same medium; installed systems get `/boot/ai-kernel.elf`
-plus a `grub.d` entry automatically. Roadmap: shared `accel_hal` seam and a
-vendor-neutral interchange IR so compute kernels written once run on either
-kernel, on NVIDIA or AMD hardware.
+plus a `grub.d` entry automatically. `daft-kernel` makes the choice persistent via
+`grub-reboot` / `grub-set-default` (needs `GRUB_DEFAULT=saved`). The ISO's GRUB
+now honors `saved_entry`/`next_entry` from `grubenv`. Roadmap: shared `accel_hal`
+seam and a vendor-neutral interchange IR so compute kernels written once run on
+either kernel, on NVIDIA or AMD hardware.
 
 ## Local AI + daft-ai-guard v2
 

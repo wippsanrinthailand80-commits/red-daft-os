@@ -12,7 +12,7 @@ BUILD   = build
 OBJS = $(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/serial.o $(BUILD)/console.o \
        $(BUILD)/string.o $(BUILD)/printf.o $(BUILD)/pmm.o $(BUILD)/heap.o \
        $(BUILD)/locks.o $(BUILD)/intr.o $(BUILD)/pci.o $(BUILD)/hmm.o \
-       $(BUILD)/models.o $(BUILD)/shell.o
+       $(BUILD)/models.o $(BUILD)/shell.o $(BUILD)/reboot.o
 
 all: $(BUILD)/ai-kernel.elf
 

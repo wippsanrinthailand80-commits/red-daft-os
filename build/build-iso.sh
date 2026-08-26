@@ -294,6 +294,17 @@ DW
     cp -r packages/daft-pkg "$ROOTFS/opt/daft/daft-pkg" 2>/dev/null || true
     chroot "$ROOTFS" ln -sf /opt/daft/daft-pkg/daft-pkg.sh /usr/local/bin/daft-pkg 2>/dev/null || true
   fi
+  # daft-kernel switcher (GRUB next/default) — pairs with Demo Box 'kernel' CLI
+  if [[ -f packages/daft-kernel/daft-kernel.sh ]]; then
+    install -Dm755 packages/daft-kernel/daft-kernel.sh "$ROOTFS/usr/local/bin/daft-kernel"
+    # make GRUB honor saved_entry/next_entry on installed systems
+    if [[ -f "$ROOTFS/etc/default/grub" ]]; then
+      if ! grep -q '^GRUB_DEFAULT=saved' "$ROOTFS/etc/default/grub"; then
+        echo 'GRUB_DEFAULT=saved' >> "$ROOTFS/etc/default/grub"
+        echo 'GRUB_SAVEDEFAULT=true' >> "$ROOTFS/etc/default/grub"
+      fi
+    fi
+  fi
 
   # GPU compatibility layer: detect/activate/fallback + capability scorer.
   # Runs at every boot (daft-gpu.service) so hot-swapped or newly-installed
@@ -357,6 +368,18 @@ stage_iso() {
   cat > "$ISO_SRC/boot/grub/grub.cfg" <<EOF
 set timeout=10
 set default=0
+# daft-kernel: honor saved_entry/next_entry (grubenv) when present
+if [ -s \$prefix/grubenv ]; then
+  load_env
+  if [ -n "\${next_entry}" ]; then
+    set default="\${next_entry}"
+    set next_entry=
+    save_env next_entry
+  fi
+  if [ -n "\${saved_entry}" ]; then
+    set default="\${saved_entry}"
+  fi
+fi
 insmod all_video
 insmod gfxterm
 insmod png
@@ -384,6 +407,14 @@ menuentry "Red Daft AI-Kernel 0.1 — experimental bare-metal HMM" {
   boot
 }
 EOF
+  fi
+  # grubenv for daft-kernel (next/saved) — 1024-byte file required by GRUB
+  if command -v grub-editenv >/dev/null 2>&1; then
+    grub-editenv "$ISO_SRC/boot/grub/grubenv" create 2>/dev/null || true
+  else
+    printf '# GRUB Environment Block\n#\n' > "$ISO_SRC/boot/grub/grubenv"
+    truncate -s 1024 "$ISO_SRC/boot/grub/grubenv" 2>/dev/null || \
+      dd if=/dev/zero bs=1 count=0 seek=1024 of="$ISO_SRC/boot/grub/grubenv" 2>/dev/null || true
   fi
 
   mkdir -p "$(pwd)/iso"
