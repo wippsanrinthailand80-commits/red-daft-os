@@ -40,6 +40,7 @@ void kernel_main(u64 mbi){
     extern u32 hb0_sum(void);
     u32 sum_before = hb0_sum();
     int ok=1;
+    /* inference: stream all models through the weights pool */
     for(u32 m=0;m<model_count();m++){
         dbgmark('A'+(char)m);
         ok &= model_verify(m);
@@ -49,6 +50,38 @@ void kernel_main(u64 mbi){
                     m, sum_before, sum_now);
             sum_before = sum_now;
         }
+    }
+    /* training: gradient writes must survive eviction via dirty writeback */
+    dbgmark('B');
+    kprintf("[train] gradient pass on 'abs-sum'...\n");
+    if(train_model(1)<0){ ok=0; }
+    (void)model_verify(2);              /* eviction pressure */
+    (void)model_verify(3);
+    if(model_verify_trained(1)){
+        kprintf("[train] WRITEBACK OK - dirty pages survived eviction\n");
+    } else { kprintf("[train] WRITEBACK FAIL\n"); ok=0; }
+
+    /* kv-cache sessions: arena semantics, explicit OOM, clean recycle */
+    dbgmark('C');
+    {
+        int s1=kv_session_begin();
+        u64 va=s1>=0?kv_session_alloc(s1,64):0;
+        int okv = va!=0;
+        if(okv) ((u64*)(usize)va)[0]=0xDAF7DAF7ull;
+        if(s1>=0) kv_session_end(s1);
+        int s2=kv_session_begin();
+        u64 vb=s2>=0?kv_session_alloc(s2,64):0;
+        if(s2>=0) kv_session_end(s2);
+        if(okv&&vb) kprintf("[kv] OK session alloc/free/realloc\n");
+        else { kprintf("[kv] FAIL (va=%llx vb=%llx)\n",(unsigned long long)va,(unsigned long long)vb); ok=0; }
+    }
+    /* scratch ring: rotation under pressure */
+    dbgmark('D');
+    {
+        int rot=0,anyrot=0;
+        for(int i=0;i<200;i++){ scratch_next(1024,&rot); anyrot|=rot; }
+        if(anyrot) kprintf("[scratch] OK ring rotated under pressure\n");
+        else { kprintf("[scratch] FAIL (no rotation)\n"); ok=0; }
     }
     dbgmark('8');
     hmm_stats();

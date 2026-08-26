@@ -1,279 +1,374 @@
-/* hmm.c — Heterogeneous Memory Manager v2.
- * Small elastic VRAM pool cached over big host-RAM models.
- *   - pool grows by DONATING contiguous runs from the buddy PMM
- *   - shrinks by RESTORING runs back to it ("RAM from the main kernel")
- *   - LRU eviction with frequency tie-break (2-bit counters)
- *   - sequential prefetch window, dirty writeback, live stats
+/* hmm.c — Heterogeneous Memory Manager v3: three specialized pools.
  *
- * Locking: one spinlock guards all pool/hashtable/LRU state. The compute
- * paths take the lock only during fault resolution, never while crunching.
- */
+ *   POOL_WEIGHTS  LRU + freq + sequential prefetch (streaming inference)
+ *   POOL_KV       arena sessions, never auto-evicted (attention states)
+ *   POOL_SCRATCH  FIFO ring, wholesale recycle (workspaces)
+ *
+ * Static quotas phase-1: weights 50% / kv 25% / scratch 25% of the global
+ * budget, donated run-by-run from the buddy PMM.
+ *
+ * Locking: one spinlock guards all pool/hashtable/list state; compute paths
+ * hold it only during fault resolution. */
 #include "hmm.h"
 
 #define MAX_MODELS 16
-#define MAX_RUNS    8
+#define MAX_RUNS    8            /* per pool */
+#define MAX_SLOTS 4096           /* slab + freelist capacity */
+#define HT_BITS    10
 
 typedef struct { u64 base, pages, used; int order; } run_t;
 
-static hmm_t       H;
+typedef struct {
+    u64 quota_pages;
+    u64 cur_pages;
+    run_t runs[MAX_RUNS]; u32 nruns;
+    u64 freelist[MAX_SLOTS]; u32 nfree;
+    /* policy list (LRU for weights, FIFO/ring for scratch, extent chain for kv) */
+    hmm_page_t *head, *tail;
+    u64 evictions, hits, prefetched, writebacks;
+} pool_t;
+
+static struct {
+    spinlock_t lock;
+    hmm_page_t *htab[1u<<HT_BITS];
+    u64 faults, misses, restored_ever, bytes_migrated;
+} G;
+
 static hmm_model_t models[MAX_MODELS];
-static u32         nmodels;
-static run_t       runs[MAX_RUNS];
-static u32         nruns;
-static u64         cap_pages;
+static u32 nmodels;
+static pool_t PL[POOL_COUNT];
+static u64 cap_pages;
 
-/* ------------------------------------------------------------------ */
-static u32 hash(u32 m,u32 i){ return ((m*2654435761u) ^ (i*97u)) & ((1u<<HMM_HASH_BITS)-1); }
-
-static hmm_page_t *ht_find(u32 m,u32 idx){
-    hmm_page_t *p = H.htab[hash(m,idx)];
-    while(p){
-        if(p->model_id==m && p->page_idx==idx) return p;
-        p = p->hash_next;
-    }
-    return NULL;
-}
-static void ht_insert(hmm_page_t *p){
-    u32 h = hash(p->model_id,p->page_idx);
-    p->hash_next = H.htab[h];                   /* push front of bucket */
-    H.htab[h]    = p;
-}
-static void ht_remove(hmm_page_t *p){
-    hmm_page_t **cur = &H.htab[hash(p->model_id,p->page_idx)];
-    while(*cur){
-        if(*cur==p){ *cur=p->hash_next; p->hash_next=NULL; return; }
-        cur = &(*cur)->hash_next;
-    }
-}
-
-static void lru_push_mru(hmm_page_t *p){
-    p->lru_next=H.lru_head; p->lru_prev=NULL;
-    if(H.lru_head) H.lru_head->lru_prev=p; else H.lru_tail=p;
-    H.lru_head=p;
-}
-static void lru_unlink(hmm_page_t *p){
-    if(p->lru_prev) p->lru_prev->lru_next=p->lru_next; else H.lru_head=p->lru_next;
-    if(p->lru_next) p->lru_next->lru_prev=p->lru_prev; else H.lru_tail=p->lru_prev;
-    p->lru_prev=p->lru_next=NULL;
-}
-
-/* --------------------- page-metadata slab --------------------------
- * Fixed-size allocation from a static pool: immune to heap fragmentation
- * under the heavy alloc/free churn of streaming eviction. */
-#define MAX_SLOTS 4096
 static hmm_page_t page_slab[MAX_SLOTS];
 static u8          slab_used[MAX_SLOTS];
-static u32         slab_inuse;
 
+/* --------------------------- slab ---------------------------- */
 static hmm_page_t *page_alloc(void){
     for(u32 i=0;i<MAX_SLOTS;i++)
-        if(!slab_used[i]){ slab_used[i]=1; slab_inuse++; return &page_slab[i]; }
+        if(!slab_used[i]){ slab_used[i]=1; return &page_slab[i]; }
     return NULL;
 }
 static void page_free(hmm_page_t *p){
-    u32 idx = (u32)(p - page_slab);
-    if(idx<MAX_SLOTS && slab_used[idx]){ slab_used[idx]=0; slab_inuse--; }
+    u32 i=(u32)(p-page_slab);
+    if(i<MAX_SLOTS) slab_used[i]=0;
 }
 
-/* ------------------------- elastic pool --------------------------- */
-static u64 slot_freelist[MAX_SLOTS];
-static u32 nfree_slots;
-
-static u64 pool_pages_now(void){ u64 t=0; for(u32 r=0;r<nruns;r++) t+=runs[r].pages; return t; }
-
-static void slot_free(u64 va){
-    if(va && nfree_slots<MAX_SLOTS) slot_freelist[nfree_slots++]=va;
+/* --------------------------- hash ---------------------------- */
+static u32 hsh(u32 m,u32 i){ return ((m*2654435761u)^(i*97u))&((1u<<HT_BITS)-1); }
+static hmm_page_t *ht_find(u32 m,u32 i){
+    hmm_page_t *p=G.htab[hsh(m,i)];
+    while(p){ if(p->model_id==m&&p->page_idx==i) return p; p=p->hash_next; }
+    return NULL;
 }
-static u64 slot_alloc(void){
-    if(nfree_slots) return slot_freelist[--nfree_slots];   /* recycle first */
-    for(u32 r=0;r<nruns;r++)
-        if(runs[r].used < runs[r].pages)
-            return runs[r].base + runs[r].used++ * HMM_PAGE_SIZE;
+static void ht_insert(hmm_page_t*p){
+    u32 h=hsh(p->model_id,p->page_idx);
+    p->hash_next=G.htab[h]; G.htab[h]=p;
+}
+static void ht_remove(hmm_page_t*p){
+    hmm_page_t**c=&G.htab[hsh(p->model_id,p->page_idx)];
+    while(*c){ if(*c==p){ *c=p->hash_next; p->hash_next=NULL; return; } c=&(*c)->hash_next; }
+}
+
+/* ----------------------- per-pool slots ---------------------- */
+static void slot_free(pool_t*L,u64 va){ if(va&&L->nfree<MAX_SLOTS) L->freelist[L->nfree++]=va; }
+static u64  slot_alloc(pool_t*L){
+    if(L->nfree) return L->freelist[--L->nfree];
+    for(u32 r=0;r<L->nruns;r++)
+        if(L->runs[r].used<L->runs[r].pages)
+            return L->runs[r].base + L->runs[r].used++ * HMM_PAGE_SIZE;
     return 0;
 }
-static int pool_has_slot(void){
-    for(u32 r=0;r<nruns;r++) if(runs[r].used<runs[r].pages) return 1;
+static int pool_has_slot(pool_t*L){
+    if(L->nfree) return 1;
+    for(u32 r=0;r<L->nruns;r++) if(L->runs[r].used<L->runs[r].pages) return 1;
     return 0;
 }
-static int pool_grow(void){
-    if(nruns>=MAX_RUNS || pool_pages_now()>=cap_pages) return -1;
-    u64 chunk = 128;
-    u64 have = pool_pages_now();
-    if(chunk > cap_pages-have) chunk = cap_pages-have;
+static int pool_grow(hmm_pool_t pid){
+    pool_t*L=&PL[pid];
+    if(L->nruns>=MAX_RUNS || L->cur_pages>=L->quota_pages) return -1;
+    u64 chunk=128;
+    if(chunk>L->quota_pages-L->cur_pages) chunk=L->quota_pages-L->cur_pages;
     int order=0; while((1u<<order)<chunk && order<10) order++;
-    u64 b = pmm_donate_range((u32)chunk);
+    u64 b=pmm_donate_range((u32)chunk);
     if(!b) return -1;
-    runs[nruns++] = (run_t){ b, chunk, 0, order };
-    H.pool_pages += chunk;
-    kprintf("[hmm] PMM donated %llu pages -> pool=%llu pages\n", chunk, pool_pages_now());
+    L->runs[L->nruns++]=(run_t){ b, chunk, 0, order };
+    L->cur_pages+=chunk;
+    kprintf("[hmm] pool %u grew +%llu pages -> %llu\n",pid,chunk,L->cur_pages);
     return 0;
 }
 
-/* --------------------------- eviction ----------------------------- */
-static void page_writeback(hmm_page_t *p){
-    if(!p->dirty) return;
-    dbgmark('W');
-    kmemcpy((void*)(usize)p->host_addr,(void*)(usize)p->vram_addr,HMM_PAGE_SIZE);
-    p->dirty=0; H.writebacks++;
+/* --------------------------- lists --------------------------- */
+static void push_front(pool_t*L,hmm_page_t*p){
+    p->lru_next=L->head; p->lru_prev=NULL;
+    if(L->head) L->head->lru_prev=p; else L->tail=p;
+    L->head=p;
 }
-static int evict_one(void){
-    hmm_page_t *v=H.lru_tail;
-    int guard=0;
-    while(v && v!=H.lru_head && guard++ < 64 && v->freq>=2){
-        v->freq--;                       /* second chance: decay + promote */
-        lru_unlink(v); lru_push_mru(v);
-        v=H.lru_tail;
+static void push_back(pool_t*L,hmm_page_t*p){
+    p->lru_prev=L->tail; p->lru_next=NULL;
+    if(L->tail) L->tail->lru_next=p; else L->head=p;
+    L->tail=p;
+}
+static void unlink_page(pool_t*L,hmm_page_t*p){
+    if(p->lru_prev)p->lru_prev->lru_next=p->lru_next; else L->head=p->lru_next;
+    if(p->lru_next)p->lru_next->lru_prev=p->lru_prev; else L->tail=p->lru_prev;
+    p->lru_prev=p->lru_next=NULL;
+}
+
+/* -------------------------- policies ------------------------- */
+static void page_writeback(hmm_page_t*p){
+    if(!p->dirty||!p->host_addr) return;
+    kmemcpy((void*)(usize)p->host_addr,(void*)(usize)p->vram_addr,HMM_PAGE_SIZE);
+    p->dirty=0; PL[p->pool].writebacks++;
+}
+static int evict_weights(void){
+    pool_t*L=&PL[POOL_WEIGHTS];
+    hmm_page_t*v=L->tail; int guard=0;
+    while(v && v!=L->head && guard++<64 && v->freq>=2){
+        v->freq--;                       /* second chance: decay+promote */
+        unlink_page(L,v); push_front(L,v); v=L->tail;
     }
     if(!v) return -1;
-    dbgmark('E');
     page_writeback(v);
     ht_remove(v);
-    if(v==H.lru_head && v==H.lru_tail){ H.lru_head=H.lru_tail=NULL; }
-    else lru_unlink(v);
-    slot_free(v->vram_addr);          /* recycle the device slot */
-    H.evictions++;
-    H.bytes_migrated += HMM_PAGE_SIZE;
+    unlink_page(L,v);
+    slot_free(L,v->vram_addr);
+    v->vram_addr=0;
+    L->evictions++; G.bytes_migrated+=HMM_PAGE_SIZE;
     page_free(v);
     return 0;
 }
-
-static int ensure_capacity(void){
-    if(pool_has_slot()) return 0;
-    if(pool_grow()==0)   return 0;
-    return evict_one();
+static int evict_scratch(void){
+    pool_t*L=&PL[POOL_SCRATCH];
+    hmm_page_t*v=L->tail;                /* FIFO: oldest rotation */
+    if(!v) return -1;
+    page_writeback(v);
+    ht_remove(v);
+    unlink_page(L,v);
+    slot_free(L,v->vram_addr);
+    v->vram_addr=0;
+    L->evictions++;
+    page_free(v);
+    return 0;
+}
+static int ensure_capacity(hmm_pool_t pid){
+    pool_t*L=&PL[pid];
+    if(pool_has_slot(L)) return 0;
+    if(pid!=POOL_KV && pool_grow(pid)==0) return 0;
+    if(pid==POOL_WEIGHTS) return evict_weights();
+    if(pid==POOL_SCRATCH)return evict_scratch();
+    return -1;                           /* KV: explicit OOM, never evicts */
 }
 
-/* resident-load without policy side effects (used by prefetch too) */
+/* ------------------------- load path ------------------------- */
 static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
-    if(ensure_capacity()!=0) return NULL;
-    hmm_model_t *mo=&models[m];
-    u64 va = slot_alloc();
-    hmm_page_t *q = page_alloc();
-    if(!q || !va){ if(q) page_free(q); return NULL; }
-    q->model_id=m; q->page_idx=idx;
-    q->host_addr = mo->host_base + (u64)idx*HMM_PAGE_SIZE;
-    q->vram_addr = va;
-    q->freq      = is_write?3:1;
-    q->dirty     = is_write?1:0;
-    q->resident  = 1;
-    kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
-    /* migration integrity check: verify the copy landed intact */
-    {
-        const u64 *src=(const u64*)(usize)q->host_addr;
-        const u64 *dst=(const u64*)(usize)va;
-        for(u32 k=0;k<HMM_PAGE_SIZE/8;k++){
-            if(src[k]!=dst[k]){ dbgmark('X'); break; }
-        }
+    hmm_pool_t pid=models[m].pool;
+    if(ensure_capacity(pid)!=0) return NULL;
+    u64 va=slot_alloc(&PL[pid]);
+    hmm_page_t*q=page_alloc();
+    if(!q||!va){ if(q)page_free(q); return NULL; }
+    q->model_id=m;q->page_idx=idx;
+    q->host_addr=models[m].host_base+(u64)idx*HMM_PAGE_SIZE;
+    q->vram_addr=va; q->pool=(u8)pid;
+    q->freq=is_write?3:1; q->dirty=is_write?1:0; q->resident=1;
+    if(q->host_addr){
+        kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
+        { const u64*s=(const u64*)(usize)q->host_addr; const u64*d=(const u64*)(usize)va;
+          for(u32 k=0;k<HMM_PAGE_SIZE/8;k++) if(s[k]!=d[k]){ dbgmark('X'); break; } }
     }
-    H.bytes_migrated += HMM_PAGE_SIZE;
     ht_insert(q);
-    lru_push_mru(q);
+    if(pid==POOL_KV) push_back(&PL[pid],q); else push_front(&PL[pid],q);
     return q;
 }
-
 static u64 fault_in(u32 m,u32 idx,int is_write){
-    if(m>=nmodels || idx>=models[m].npages) return 0;
-    spin_lock(&H.lock);
-    H.faults++;
-    hmm_page_t *p = ht_find(m,idx);
+    if(m>=nmodels||idx>=models[m].npages) return 0;
+    spin_lock(&G.lock);
+    G.faults++;
+    hmm_page_t*p=ht_find(m,idx);
     if(p){
-        H.hits++;
-        if(p->freq<3) p->freq++;
-        if(is_write) p->dirty=1;
-        spin_unlock(&H.lock);
+        PL[p->pool].hits++;
+        if(p->freq<3)p->freq++;
+        if(is_write)p->dirty=1;
+        spin_unlock(&G.lock);
         return p->vram_addr;
     }
-    H.misses++;
-    p = load_new(m,idx,is_write);
-    spin_unlock(&H.lock);
+    G.misses++;
+    p=load_new(m,idx,is_write);
+    spin_unlock(&G.lock);
     if(!p) return 0;
-
-    /* sequential prefetch: weights stream linearly, pull next 3 */
-    for(u32 k=1;k<=3;k++){
-        u32 pi=idx+k;
-        if(pi>=models[m].npages) break;
-        spin_lock(&H.lock);
-        if(ht_find(m,pi)){ spin_unlock(&H.lock); continue; }
-        if(load_new(m,pi,0)) H.prefetched++;
-        spin_unlock(&H.lock);
+    if(models[m].pool==POOL_WEIGHTS){     /* sequential prefetch window */
+        for(u32 k=1;k<=3;k++){
+            u32 pi=idx+k; if(pi>=models[m].npages)break;
+            spin_lock(&G.lock);
+            if(ht_find(m,pi)){spin_unlock(&G.lock);continue;}
+            if(load_new(m,pi,0)) PL[POOL_WEIGHTS].prefetched++;
+            spin_unlock(&G.lock);
+        }
     }
     return p->vram_addr;
 }
 
-/* ------------------------------ API -------------------------------- */
+/* ---------------------------- API ---------------------------- */
 int hmm_init(u64 initial_pool_pages, u64 max_pool_pages){
-    kmemset(&H,0,sizeof(H)); kmemset(models,0,sizeof(models));
-    kmemset(runs,0,sizeof(runs));
-    nmodels=0; nruns=0; cap_pages=max_pool_pages;
-    u64 b=pmm_donate_range((u32)initial_pool_pages);
-    if(!b){ kprintf("[hmm] initial donation failed\n"); return -1; }
-    int iorder=0; while((1u<<iorder)<initial_pool_pages && iorder<10) iorder++;
-    runs[nruns++] = (run_t){ b, initial_pool_pages, 0, iorder };
-    H.pool_base=b; H.pool_pages=initial_pool_pages;
-    kprintf("[hmm] pool=%lluKB cap=%lluKB | free RAM %lluKB\n",
-            initial_pool_pages*4, max_pool_pages*4, pmm_free_pages()*4);
+    kmemset(&G,0,sizeof(G)); kmemset(models,0,sizeof(models));
+    kmemset(PL,0,sizeof(PL)); kmemset(page_slab,0,sizeof(page_slab));
+    nmodels=0; cap_pages=max_pool_pages;
+    PL[POOL_WEIGHTS].quota_pages = max_pool_pages/2;
+    PL[POOL_KV].quota_pages      = max_pool_pages/4;
+    PL[POOL_SCRATCH].quota_pages = max_pool_pages - max_pool_pages/2 - max_pool_pages/4;
+    u64 first=initial_pool_pages;
+    if(first>PL[POOL_WEIGHTS].quota_pages) first=PL[POOL_WEIGHTS].quota_pages;
+    u64 b=pmm_donate_range((u32)first);
+    if(!b){kprintf("[hmm] initial donation failed\n");return -1;}
+    int o=0;while((1u<<o)<first&&o<10)o++;
+    PL[POOL_WEIGHTS].runs[PL[POOL_WEIGHTS].nruns++]=(run_t){b,first,0,o};
+    PL[POOL_WEIGHTS].cur_pages=first;
+    kprintf("[hmm] v3 pools: weights=%lluK kv=%lluK scratch=%lluK | free RAM %lluK\n",
+        PL[0].quota_pages*4,PL[1].quota_pages*4,PL[2].quota_pages*4,pmm_free_pages()*4);
     return 0;
 }
-int hmm_register_model(const char *name,void *buf,u64 npages){
-    if(nmodels>=MAX_MODELS) return -1;
-    models[nmodels]=(hmm_model_t){ name,(u64)(usize)buf,npages };
+int hmm_register_model_p(const char*n,void*buf,u64 np,hmm_pool_t pool){
+    if(nmodels>=MAX_MODELS||pool>=POOL_COUNT)return -1;
+    models[nmodels]=(hmm_model_t){n,(u64)(usize)buf,np,(u8)pool};
     return nmodels++;
 }
-int hmm_model_id(const char *name){
-    for(u32 i=0;i<nmodels;i++) if(!kstrcmp(models[i].name,name)) return i;
+int hmm_register_model(const char*n,void*b,u64 np){return hmm_register_model_p(n,b,np,POOL_WEIGHTS);}
+int hmm_model_id(const char*n){for(u32 i=0;i<nmodels;i++)if(!kstrcmp(models[i].name,n))return i;return -1;}
+u64 hmm_fault(u32 m,u32 idx){return fault_in(m,idx,0);}
+u64 hmm_write_fault(u32 m,u32 idx){return fault_in(m,idx,1);}
+
+/* ---- KV sessions ---- */
+typedef struct{ int sid; hmm_page_t *first,*last; u32 npages; } kvsess_t;
+static kvsess_t sess[8];
+static int next_sid=1;
+int kv_session_begin(void){
+    for(int i=0;i<8;i++) if(sess[i].sid==0){ sess[i].sid=next_sid; return next_sid++; }
     return -1;
 }
-u64 hmm_fault(u32 m,u32 idx){ return fault_in(m,idx,0); }
-u64 hmm_write_fault(u32 m,u32 idx){ return fault_in(m,idx,1); }
+u64 kv_session_alloc(int sid,u32 np){
+    u64 have=0;
+    for(int i=0;i<8;i++) if(sess[i].sid) have+=sess[i].npages;
+    if(have+(u64)np > PL[POOL_KV].quota_pages) return 0;    /* KV OOM */
+    kvsess_t*S=NULL; for(int i=0;i<8;i++) if(sess[i].sid==sid) S=&sess[i];
+    if(!S || S->first || S->npages) return 0;
+    u64 first_va=0;
+    for(u32 k=0;k<np;k++){
+        if(ensure_capacity(POOL_KV)!=0) goto rollback;
+        u64 va=slot_alloc(&PL[POOL_KV]);
+        if(!va) goto rollback;
+        hmm_page_t*q=page_alloc();
+        if(!q){ slot_free(&PL[POOL_KV],va); goto rollback; }
+        q->model_id=0x7F000000u|(u32)sid; q->page_idx=k;
+        q->host_addr=0; q->vram_addr=va; q->pool=POOL_KV;
+        q->freq=3; q->dirty=1; q->resident=1;
+        ht_insert(q);
+        push_back(&PL[POOL_KV],q);
+        if(S->last){ S->last->lru_next=q; q->lru_prev=S->last; S->last=q; }
+        else { S->first=S->last=q; q->lru_prev=NULL; }
+        if(k==0) first_va=va;
+        continue;
+rollback:
+        /* atomic: undo this session's pages so far, report OOM honestly */
+        {
+            hmm_page_t*i2=S->first;
+            while(i2){
+                hmm_page_t*n=i2->lru_next;
+                ht_remove(i2); unlink_page(&PL[POOL_KV],i2);
+                slot_free(&PL[POOL_KV],i2->vram_addr);
+                page_free(i2); i2=n;
+            }
+            S->first=S->last=NULL; S->npages=0;
+        }
+        return 0;
+    }
+    S->npages=np;
+    return first_va;
+}
+void kv_session_end(int sid){
+    for(int i=0;i<8;i++) if(sess[i].sid==sid){
+        hmm_page_t*p=sess[i].first;
+        while(p){
+            hmm_page_t*n=p->lru_next;
+            ht_remove(p);
+            unlink_page(&PL[POOL_KV],p);
+            slot_free(&PL[POOL_KV],p->vram_addr);
+            page_free(p);
+            p=n;
+        }
+        sess[i]=(kvsess_t){0,NULL,NULL,0};
+        return;
+    }
+}
 
+/* ---- Scratch ring ---- */
+static int scratch_mid=-1;               /* internal pseudo-model */
+static u32 scratch_pos=0;
+u64 scratch_next(u32 words,int*rotated){
+    (void)words;
+    int rot=0;
+    if(PL[POOL_SCRATCH].cur_pages >= PL[POOL_SCRATCH].quota_pages &&
+       !pool_has_slot(&PL[POOL_SCRATCH])){ rot=1; evict_scratch(); }
+    if(scratch_mid<0)
+        scratch_mid=hmm_register_model_p("__scratch",0,0xFFFF,POOL_SCRATCH);
+    hmm_page_t*q=load_new((u32)scratch_mid,scratch_pos,0);
+    scratch_pos++;
+    if(rotated)*rotated=rot;
+    return q?q->vram_addr:0;
+}
+
+/* ----------------------- restore/stats ----------------------- */
+static u64 pool_total(void){
+    u64 t=0; for(u32 p=0;p<POOL_COUNT;p++) t+=PL[p].cur_pages; return t;
+}
 u64 hmm_restore_to_pmm(u32 target_pages){
     u64 freed=0;
-    spin_lock(&H.lock);
-    while(freed<target_pages && nruns>1){
-        run_t *r=&runs[nruns-1];
-        /* flush+drop every resident page inside this run */
-        int again=1;
-        while(again){
-            again=0;
-            for(u32 h=0; h<(1u<<HMM_HASH_BITS) && !again; h++){
-                hmm_page_t *p=H.htab[h];
-                while(p){
-                    if(p->vram_addr>=r->base &&
-                       p->vram_addr< r->base+r->pages*HMM_PAGE_SIZE){
-                        page_writeback(p);
-                        ht_remove(p);
-                        if(p==H.lru_head||p==H.lru_tail||p->lru_prev||p->lru_next)
-                            lru_unlink(p);
-                        /* slot belongs to the run being dropped: drop, not recycle */
-                        page_free(p);
-                        again=1;
-                        break;
+    for(int pi=POOL_COUNT-1;pi>=0 && freed<(u64)target_pages;pi--){
+        pool_t*L=&PL[pi];
+        spin_lock(&G.lock);
+        while(freed<(u64)target_pages && L->nruns>1){
+            run_t*r=&L->runs[L->nruns-1];
+            int again=1;
+            while(again){
+                again=0;
+                for(u32 h=0;h<(1u<<HT_BITS)&&!again;h++){
+                    hmm_page_t*p=G.htab[h];
+                    while(p){
+                        if(p->pool==(u8)pi &&
+                           p->vram_addr>=r->base &&
+                           p->vram_addr< r->base+r->pages*HMM_PAGE_SIZE){
+                            page_writeback(p); ht_remove(p);
+                            unlink_page(L,p); page_free(p);
+                            again=1; break;
+                        }
+                        p=p->hash_next;
                     }
-                    p=p->hash_next;
                 }
             }
+            pmm_restore_block(r->base,r->order,(u32)r->pages);
+            L->cur_pages-=r->pages; freed+=r->pages;
+            G.restored_ever+=r->pages;
+            L->nruns--;
         }
-        kprintf("[hmm] restoring %llu pages to PMM\n", r->pages);
-        pmm_restore_block(r->base, r->order, (u32)r->pages);
-        H.pool_pages-=r->pages; freed+=r->pages; H.restored_ever+=r->pages;
-        nruns--;
+        spin_unlock(&G.lock);
     }
-    spin_unlock(&H.lock);
     return freed;
 }
-
 void hmm_stats(void){
-    u64 mb=0; for(u32 i=0;i<nmodels;i++) mb+=models[i].npages*HMM_PAGE_SIZE;
-    kprintf("[hmm] faults=%llu hits=%llu misses=%llu hit%%=%llu\n",
-            H.faults,H.hits,H.misses, H.faults?(H.hits*100)/H.faults:0);
-    kprintf("[hmm] evict=%llu writeback=%llu prefetched=%llu migrated=%lluKB\n",
-            H.evictions,H.writebacks,H.prefetched,H.bytes_migrated/1024);
-    kprintf("[hmm] pool=%lluKB | models=%lluKB | amplification=%llux | ram_restored=%lluKB\n",
-            H.pool_pages*4, mb/1024,
-            H.pool_pages? (mb/1024)/(H.pool_pages*4):0, H.restored_ever*4);
+    static const char*nm[POOL_COUNT]={"weights","kv","scratch"};
+    u64 mb=0; for(u32 i=0;i<nmodels-1;i++)
+        if(models[i].name && models[i].name[0]!='_') mb+=models[i].npages*HMM_PAGE_SIZE;
+    for(u32 p=0;p<POOL_COUNT;p++)
+        kprintf("[hmm] %-8s cur=%lluKB quota=%lluKB evict=%llu hit=%llu wb=%llu\n",
+            nm[p],PL[p].cur_pages*4,PL[p].quota_pages*4,
+            PL[p].evictions,PL[p].hits,PL[p].writebacks);
+    kprintf("[hmm] faults=%llu misses=%llu migrated=%lluKB restored=%lluKB\n",
+        G.faults,G.misses,G.bytes_migrated/1024,G.restored_ever*4);
+    kprintf("[hmm] models=%lluKB amplification=%llux\n",
+        mb/1024, pool_total()? (mb/1024)/(pool_total()*4):0);
 }
 u64 hmm_amplification_x100(void){
-    u64 mp=0; for(u32 i=0;i<nmodels;i++) mp+=models[i].npages;
-    return H.pool_pages? (mp*100)/H.pool_pages : 0;
+    u64 mp=0; for(u32 i=0;i<nmodels;i++)
+        if(models[i].name&&models[i].name[0]!='_') mp+=models[i].npages;
+    u64 pp=pool_total();
+    return pp?(mp*100)/pp:0;
 }
-u64 hmm_pool_pages(void){ return pool_pages_now(); }
+u64 hmm_pool_pages(void){ return pool_total(); }

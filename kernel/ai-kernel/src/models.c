@@ -43,10 +43,19 @@ void models_init(void){
 static s64 run_model(u32 m){
     s64 acc=0;
     for(u32 i=0;i<defs[m].npages;i++){
-        u64 va = hmm_fault(m,i);
+        u64 va=hmm_fault(m,i);
         if(!va){ kprintf("[model] fault FAILED %u:%u\n",m,i); return -1; }
-        s32 *w = (s32*)(usize)va;
+        s32 *w=(s32*)(usize)va;
         acc += defs[m].op(w[0]);               /* touch first word of page */
+    }
+    return acc;
+}
+/* post-training reference: host words now include the +7 updates */
+static s64 ref_model_trained(u32 m){
+    s64 acc=0; const s32 *w=host_buf[m];
+    for(u32 i=0;i<defs[m].npages;i++){
+        s32 v=w[i*WORDS_PER_PAGE]+7;
+        acc += defs[m].op(v);
     }
     return acc;
 }
@@ -61,6 +70,29 @@ int model_verify(u32 m){
     kprintf("[verify] %-12s ref=%lld got=%lld -> %s\n",
             defs[m].name, ref, got, got==ref?"MATCH":"MISMATCH");
     return got==ref;
+}
+/* verify AFTER training: host words carry the +7 updates */
+int model_verify_trained(u32 m){
+    s64 got=run_model(m), ref=ref_model_trained(m);
+    kprintf("[t-verify] %-12s ref=%lld got=%lld -> %s\n",
+            defs[m].name, ref, got, got==ref?"MATCH":"MISMATCH");
+    return got==ref;
+}
+
+/* training-style pass: WRITE every page of model m (simulated gradient:
+ * first word += 7 via the device copy), forcing dirty state. The caller
+ * then streams other models to push these pages out; writeback must land
+ * them in host RAM. Re-verification reads host directly. */
+s64 train_model(u32 m){
+    s64 acc=0;
+    for(u32 i=0;i<defs[m].npages;i++){
+        u64 va=hmm_write_fault(m,i);
+        if(!va){ kprintf("[train] write fault FAILED %u:%u\n",m,i); return -1; }
+        s32 *w=(s32*)(usize)va;
+        w[0]+=7;                                   /* "gradient update" */
+        acc+=defs[m].op(w[0]);
+    }
+    return acc;
 }
 const char *model_name(u32 m){ return m<4?defs[m].name:"?"; }
 u32 model_count(void){ return 4; }

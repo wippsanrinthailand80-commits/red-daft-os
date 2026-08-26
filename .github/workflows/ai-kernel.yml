@@ -30,7 +30,10 @@ jobs:
           echo "----- serial output -----"; cat smoke.log 2>/dev/null || true; echo "-------------------------"
           N=$(grep -c -- '-> MATCH' smoke.log || true)
           [ "$N" -eq 4 ] || { echo "expected 4 verified models, got $N"; exit 1; }
-          grep -q "SELF-TEST PASS"   smoke.log
+          grep -q "WRITEBACK OK"       smoke.log
+          grep -q "\[kv\] OK"         smoke.log
+          grep -q "\[scratch\] OK"    smoke.log
+          grep -q "SELF-TEST PASS"     smoke.log
           grep -q "elasticity check: returned 128 pages" smoke.log
           echo "AI-KERNEL SMOKE PASS"
 

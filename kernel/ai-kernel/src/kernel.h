@@ -76,9 +76,10 @@ void pci_scan(void);
 /* models */
 void models_init(void);
 int  model_verify(u32 m);
+int  model_verify_trained(u32 m);
+s64  train_model(u32 m);
 const char *model_name(u32 m);
 u32  model_count(void);
-u32  hb0_sum(void);
 void shell_run(void) __attribute__((noreturn));
 
 #endif
