@@ -36,8 +36,10 @@ run: all
 # Boots exactly like the Red Daft ISO dual-boot menu: GRUB -> multiboot2.
 smoke: all isoboot/boot/ai-kernel.elf isoboot/boot/grub/grub.cfg
 	-grub-mkrescue -o build/smoke.iso isoboot
-	timeout 60 qemu-system-x86_64 -cdrom build/smoke.iso \
-	    -m 256 -display none -no-reboot -serial file:smoke.log </dev/null || true
+	timeout 90 qemu-system-x86_64 -cdrom build/smoke.iso \
+	    -m 256 -display none -no-reboot -serial file:smoke.log \
+	    -d int,cpu_reset -D build/qdebug.log </dev/null || true
+	cat build/qdebug.log | tail -30 || true
 	grep -q "ALL MODELS MATCH" smoke.log && echo "SMOKE PASS"
 
 isoboot/boot/ai-kernel.elf: $(BUILD)/ai-kernel.elf
