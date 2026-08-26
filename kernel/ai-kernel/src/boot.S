@@ -49,6 +49,19 @@ stack_top:
 .global _start
 _start:
     cli
+    /* earliest possible serial beacon: init COM1 raw, print 'S' */
+    mov $0x3F8, %edx
+    mov $0x80, %al ; out %al, %dx        /* DLAB */
+    mov $0x3F8, %edx
+    mov $0x01, %al ; out %al, %dx        /* div lo =1 */
+    inc %edx ; xor %al,%al ; out %al, %dx/* div hi */
+    inc %edx ; mov $0x03, %al ; out %al,%dx /* 8N1 */
+    inc %edx ; mov $0xC7, %al ; out %al,%dx /* fifo */
+    inc %edx ; mov $0x0B, %al ; out %al,%dx /* modem */
+    mov $'S', %al ; dec %edx ; dec %edx ; dec %edx ; dec %edx
+    out %al, %dx                          /* TX -> 'S' */
+
+    mark:                                  /* clobbers eax/edx */
     mov $stack_top, %esp
     and $-8, %esp
 
@@ -61,6 +74,7 @@ _start:
     cld
     rep stosl
 
+    mov $'A', %al ; call beacon
     /* build identity page tables: PML4[0]->PDPT->4 PDs, 2MB pages = 4GB */
     lea pml4, %edi
     lea pdpt, %eax
@@ -91,18 +105,21 @@ fill:
     add $4, %edi
     loop fill
 
+    mov $'B', %al ; call beacon
     /* enable PAE, page tables, long mode + paging */
     mov %cr4, %eax
     or  $0x20, %eax                  /* PAE */
     mov %eax, %cr4
     lea pml4, %eax
     mov %eax, %cr3
+    mov $'C', %al ; call beacon
     mov $0xC0000080, %ecx            /* EFER MSR */
     rdmsr
     or  $0x100, %eax                 /* LME: long mode enable */
     wrmsr
+    mov $'D', %al ; call beacon
     mov %cr0, %eax
-    or  $0x80010000, %eax            /* PG | PAE-bit via CR4 done; PG=bit31 */
+    or  $0x80010000, %eax            /* PG | WP */
     mov %eax, %cr0
 
     lgdt gdtr
@@ -117,6 +134,7 @@ long_mode:
     mov %ax, %fs
     mov %ax, %gs
     mov $stack_top, %rsp
+    mov $'L', %al ; call beacon64
     /* pass multiboot info pointer in edi/ebx? keep ABI simple: zero args */
     xor %rdi, %rdi
     call kernel_main
@@ -126,6 +144,19 @@ halt:
     jmp halt
 
 /* ---- IRQ stubs: preserve caller-saved regs, call C handlers ---- */
+beacon:                                   /* 32-bit: al = char */
+    push %eax; push %edx
+    mov $0x3F8, %edx
+    out %al, %dx
+    pop %edx; pop %eax
+    ret
+beacon64:                                 /* 64-bit */
+    push %rax; push %rdx
+    mov $0x3F8, %edx
+    out %al, %dx
+    pop %rdx; pop %rax
+    ret
+
 .global irq0_stub
 irq0_stub:
     push %rax; push %rcx; push %rdx; push %rsi; push %rdi
