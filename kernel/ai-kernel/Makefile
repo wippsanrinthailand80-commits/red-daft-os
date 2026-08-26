@@ -38,8 +38,10 @@ smoke: all isoboot/boot/ai-kernel.elf isoboot/boot/grub/grub.cfg
 	-grub-mkrescue -o build/smoke.iso isoboot
 	timeout 90 qemu-system-x86_64 -cdrom build/smoke.iso \
 	    -m 256 -display none -no-reboot -serial file:smoke.log \
+	    -debugcon file:build/debug.log -global isa-debugcon.iobase=0xe9 \
 	    -d int,cpu_reset -D build/qdebug.log </dev/null || true
-	cat build/qdebug.log | tail -30 || true
+	echo "--- debugcon ---"; cat build/debug.log 2>/dev/null || true; echo
+	cat build/qdebug.log | tail -25 || true
 	grep -q "ALL MODELS MATCH" smoke.log && echo "SMOKE PASS"
 
 isoboot/boot/ai-kernel.elf: $(BUILD)/ai-kernel.elf

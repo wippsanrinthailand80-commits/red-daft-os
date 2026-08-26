@@ -47,6 +47,9 @@ _start:
     inc %edx ; mov $0x0B, %al ; out %al,%dx /* modem */
     mov $'S', %al ; dec %edx ; dec %edx ; dec %edx ; dec %edx
     out %al, %dx                          /* TX -> 'S' */
+    mov $0xE9, %edx
+    mov $'S', %al
+    out %al, %dx                          /* debugcon -> 'S' */
 
     mark:                                  /* clobbers eax/edx */
     mov $stack_top, %esp
@@ -137,9 +140,11 @@ halt:
 
 /* ---- serial beacons + IRQ stubs ---- */
 .code32
-beacon:                                   /* 32-bit: al = char */
+beacon:                                   /* 32-bit: al = char (serial+E9) */
     push %eax; push %edx
     mov $0x3F8, %edx
+    out %al, %dx
+    mov $0xE9, %edx                       /* qemu debugcon mirror */
     out %al, %dx
     pop %edx; pop %eax
     ret
@@ -148,6 +153,8 @@ beacon:                                   /* 32-bit: al = char */
 beacon64:                                 /* 64-bit */
     push %rax; push %rdx
     mov $0x3F8, %edx
+    out %al, %dx
+    mov $0xE9, %edx
     out %al, %dx
     pop %rdx; pop %rax
     ret
