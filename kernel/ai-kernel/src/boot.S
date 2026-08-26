@@ -143,13 +143,16 @@ halt:
     hlt
     jmp halt
 
-/* ---- IRQ stubs: preserve caller-saved regs, call C handlers ---- */
+/* ---- serial beacons + IRQ stubs ---- */
+.code32
 beacon:                                   /* 32-bit: al = char */
     push %eax; push %edx
     mov $0x3F8, %edx
     out %al, %dx
     pop %edx; pop %eax
     ret
+
+.code64
 beacon64:                                 /* 64-bit */
     push %rax; push %rdx
     mov $0x3F8, %edx
