@@ -109,10 +109,13 @@ _start:
 
 .code64
 long_mode:
-    xor %ax, %ax
+    /* DS/ES/SS must hold a valid data selector for interrupt delivery;
+     * FS/GS may be null. */
+    mov $0x10, %ax
     mov %ax, %ds
     mov %ax, %es
     mov %ax, %ss
+    xor %ax, %ax
     mov %ax, %fs
     mov %ax, %gs
     mov $stack_top, %rsp
