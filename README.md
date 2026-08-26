@@ -14,6 +14,12 @@ AI developers, and power users. 100% free and open-source.
 ## Highlights
 - **Dual kernel** — hardened Linux 7.1.10 daily driver + **Red Daft AI-Kernel**
   v0.2 "Demo Box", a from-scratch bare-metal x86_64 kernel (see below).
+- **HMM v3 — 10 pools** — Kernel 2 exposes 10 elastic VRAM pools
+  (`weights/kv/scratch/activ/embed/attn/worksp/cache/tensor/generic`) with
+  LRU/FIFO/arena policies, weighted quotas, and `kernel pool` CLI.
+- **VRAM Engine** — Linux C++20 tiered manager (VRAM + DDR pinned) for 3B/7B/32B
+  LLMs: 10 pools, async `cudaMemcpyAsync`/`hipMemcpyAsync` double-buffering,
+  HAL (CUDA/ROCm/CPU), emergency borrowing + anti-starvation, `pybind11` + Torch.
 - **Daft-Kernel** — hardened config (`build/configs/kernel-config.x86_64`):
   KSPP-aligned hardening + full GPU enablement + live-boot essentials.
 - **daft-pkg** — native `.daft` package manager (signed tar.zst + manifest).
@@ -155,6 +161,95 @@ now honors `saved_entry`/`next_entry` from `grubenv`. Roadmap: shared `accel_hal
 seam and a vendor-neutral interchange IR so compute kernels written once run on
 either kernel, on NVIDIA or AMD hardware.
 
+## VRAM Engine — 10-Pool Tiered Manager (Linux, C++20 + CUDA/HIP)
+
+High-performance **Custom VRAM Management Engine** for training/inference of 3B/7B/32B
+LLMs while strictly minimizing VRAM. System DDR4/DDR5 is a high-speed secondary tier
+(pinned `cudaMallocHost` / `hipHostMalloc`) with async prefetch/offload on dedicated
+streams and double-buffering.
+
+**Location:** `vram-engine/` — header `include/red_daft_vram.h`, impl `src/red_daft_vram.cpp`,
+Python binding `src/pybind_wrapper.cpp` (`pybind11` + optional `torch/extension.h`).
+
+### 10 Memory Pools
+
+| Pool | Name                     | Policy      | Quota (2 GiB budget) | Role |
+|------|--------------------------|-------------|----------------------|------|
+| 0 | ModelWeights | LRU_FREQ | 35% 716 MiB | Read-only static weights |
+| 1 | KvCache | ARENA | 25% 512 MiB | Dynamic paged KV, never auto-evict |
+| 2 | ActivationsTensors | FIFO | 15% 307 MiB | High-frequency cyclic |
+| 3 | WorkspaceScratchpad | FIFO | 5% 102 MiB | Temp kernel workspace |
+| 4 | HostSwapStaging | LRU_GENERIC | 5% 102 MiB | Pinned staging |
+| 5 | EmbeddingBuffers | LRU_FREQ | 5% 102 MiB | Embeddings + prefetch |
+| 6 | QuantizationMetadata | LRU_GENERIC | 3% 61 MiB | Scales / codebooks |
+| 7 | AsyncStreamQueue | LRU_GENERIC | 2% 40 MiB | Stream control blocks |
+| 8 | SystemIpcShared | LRU_GENERIC | 3% 61 MiB | IPC handles |
+| 9 | EmergencyOverflow | LRU_GENERIC | 2% 40 MiB | Lends to Pool 1/2 under pressure |
+
+All pools share one elastic budget donated run-by-run from the HAL; `hmm_pool_pages()` style
+quotas are weighted but lendable. Pool 9 is the **Dynamic Borrowing Pool**.
+
+### Tiered Memory (VRAM + DDR)
+
+- **High-Speed Tier (VRAM):** active tensors, current layer, immediate KV — `cudaMalloc` / `hipMalloc`.
+- **Capacity Tier (DDR pinned):** cold weights + long-context KV — `cudaMallocHost` / `hipHostMalloc`.
+- **Async Pipeline:** `prefetch_to_vram()` / `offload_to_ddr()` are `cudaMemcpyAsync` / `hipMemcpyAsync`
+  on 4 dedicated streams, with optional `shadow_ptr` double-buffering to hide PCIe latency.
+  No GPU stall — next layer prefetches while current computes.
+
+### HAL (Hardware Abstraction Layer)
+
+Macro-switchable at compile time, single header:
+
+```bash
+-DRD_USE_CUDA   # NVIDIA  → cudaMalloc / cudaMemcpyAsync / cudaStream_t
+-DRD_USE_ROCM   # AMD ROCm → hipMalloc / hipMemcpyAsync / hipStream_t
+# no flag       # CPU fallback → malloc + memcpy simulation (CI/Kaggle CPU)
+```
+
+All device/host alloc, free, memcpy, streams go through `hal_*` wrappers.
+
+### Dynamic Borrowing & Anti-Starvation
+
+If Pool 1 (KV) or Pool 2 (Activations) hits `>85%` pressure, `borrow_memory()` requests
+chunks from Pool 9. If Emergency also pressured, it first offloads its own LRU cold
+blocks to host (`offload_lru_to_host`), then retries. Hysteresis at `60%` prevents
+thrashing. KV is `ARENA` — OOM is reported, not silently dropped (vLLM semantics).
+
+### Python / PyTorch Binding (Kaggle/Linux)
+
+```bash
+pip install pybind11 torch
+pip install -e ./vram-engine              # CPU fallback
+RD_USE_CUDA=1 pip install -e ./vram-engine
+RD_USE_ROCM=1 pip install -e ./vram-engine
+
+python -c "import red_daft_vram as rdv; help(rdv)"
+```
+
+```python
+import red_daft_vram as rdv
+rdv.initialize()  # auto 80% free VRAM or 2 GiB fallback
+h = rdv.allocate_handle(0, 1<<20, tag="layer_0")  # Pool 0, 1 MiB
+rdv.prefetch_to_vram(h, double_buffer=True)
+rdv.offload_to_ddr(h)
+rdv.deallocate(h)
+rdv.print_pool_stats()
+
+# Torch integration (optional)
+t = rdv.allocate_torch(pool=0, shape=[3072,3072], dtype="bf16")
+
+# 3B stress — streams 28 layers through 10 pools
+res = rdv.stress_3b_benchmark(layers=28, hidden=3072, seq_len=2048, iterations=3, verbose=True)
+print(res.report)  # peak VRAM, borrows, offloads, PASS/FAIL
+
+# Kaggle one-liner
+# !git clone https://github.com/wippsanrinthailand80-commits/red-daft-os.git
+# !cd red-daft-os/vram-engine && pip install pybind11 && pip install -e . && python benchmarks/stress_3b.py --torch
+```
+
+See `vram-engine/README.md`, `CMakeLists.txt`, `benchmarks/stress_3b.py`, `tests/test_vram.cpp`.
+
 ## Local AI + daft-ai-guard v2
 
 Default stack: Ollama serving `qwen2.5-coder:3b` behind the guard proxy
@@ -195,18 +290,19 @@ CUDA_VER=12.9 bash packages/specs/nvidia/cuda-toolkit.daftspec
 | Workflow | What it proves |
 |---|---|
 | `iso.yml` | full distro builds; hybrid BIOS+EFI ISO artifact |
-| `build.yml` | container image, daft-pkg install, ai-guard v2 policy tests |
+| `build.yml` | container image, daft-pkg install, ai-guard v2 policy tests, vram-engine CPU smoke (`vram_test` + `stress_all_pools`) |
 | `gpu-compat.yml` | kernel Kconfig audit ≥33/35, nvcc sm_86/89/120, hipcc gfx90a/gfx1100, fallback rootfs 25/25 |
-| `ai-kernel.yml` | Demo Box builds + QEMU boot + 4/4 model verification + elasticity |
+| `ai-kernel.yml` | Demo Box **10 pools** builds + QEMU boot + **7/7 MATCH** (incl. training writeback) + KV/scratch/10-pool + elasticity |
 | `amd-rocm.yml` / `nvidia-cuda.yml` | live-repo package validation + toolchain smoke |
 
 ## Directory layout
 ```
 build/          ISO pipeline, hardened+GPU kernel config, Plymouth, assets gen
-packages/       daft-pkg, deb-adapter, daft specs, gpu/ (daft-gpu + scorer)
+packages/       daft-pkg, deb-adapter, daft specs, gpu/ (daft-gpu + scorer), daft-kernel/
 ai/             Modelfile, ollama-setup, daft-ai-guard v2 (+proxy, service)
 shell/          daft-shell (in-RAM execution)
-kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box)
+kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools)
+vram-engine/    C++20 tiered manager: 10 pools, VRAM+DDR pinned, CUDA/HIP HAL, pybind11
 ux/             branding, MOTD, first-run ID card, installer
 docs/           architecture
 .github/        ci workflows (iso, build, gpu-compat, ai-kernel, rocm, cuda)
