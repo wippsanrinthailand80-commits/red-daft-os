@@ -25,10 +25,11 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y qemu-system-x86
           cd kernel/ai-kernel
+          # -no-reboot: exit instantly on guest triple-fault instead of
+          # reset-looping; -serial file: avoids stdio chardev quirks.
           timeout 30 qemu-system-x86_64 -kernel build/ai-kernel.elf \
-            -m 256 -display none -serial stdio </dev/null | tee smoke.log || true
+            -m 256 -display none -no-reboot -serial file:smoke.log </dev/null || true
           echo "----- serial output -----"; cat smoke.log || true; echo "-------------------------"
-          readelf -l build/ai-kernel.elf | sed -n '/Program Headers/,/Section to Segment/p' || true
           grep -q "ALL MODELS MATCH" smoke.log
           grep -q "SELF-TEST PASS"   smoke.log
           grep -q "elasticity check: returned 128 pages" smoke.log
