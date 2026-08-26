@@ -24,10 +24,6 @@ gdtr: .word gdt_end - gdt - 1; .long gdt
 .align 4096
 pml4:  .space 4096
 pdpt:  .space 4096
-pd0:   .space 4096
-pd1:   .space 4096
-pd2:   .space 4096
-pd3:   .space 4096
 stack_bottom:
 .space 16384
 stack_top:
@@ -65,35 +61,19 @@ _start:
     rep stosl
 
     mov $'A', %al ; call beacon
-    /* build identity page tables: PML4[0]->PDPT->4 PDs, 2MB pages = 4GB */
+
+    /* identity map 0..2GB with two 1GB huge pages:
+     *   pml4[0] -> pdpt ; pdpt[0] = phys 0GB ; pdpt[1] = phys 1GB */
     lea pml4, %edi
     lea pdpt, %eax
     or  $3, %eax
-    mov %eax, (%edi)
+    mov %eax, (%edi)                 /* PML4[0] -> PDPT, present|rw */
 
     lea pdpt, %edi
-    lea pd0, %eax
-    or  $3, %eax
-    mov %eax, (%edi)                 /* PDPT[0] -> pd0 : 0..1GB */
-    lea pd1, %eax
-    or  $3, %eax
-    mov %eax, 8(%edi)                /* PDPT[1] -> pd1 : 1..2GB */
-    lea pd2, %eax
-    or  $3, %eax
-    mov %eax, 16(%edi)
-    lea pd3, %eax
-    or  $3, %eax
-    mov %eax, 24(%edi)
-
-    /* fill each PD with 512 x 2MB present|rw|huge entries */
-    lea pd0, %edi
-    mov $0x83, %eax                  /* first entry: phys 0 */
-    mov $512*4, %ecx
-fill:
+    mov $0x83, %eax                  /* PDPT[0]: 1GB page @ phys 0 */
     mov %eax, (%edi)
-    add $0x200000, %eax              /* next 2MB */
-    add $4, %edi
-    loop fill
+    mov $0x40000083, %eax            /* PDPT[1]: 1GB page @ phys 1GB */
+    mov %eax, 8(%edi)
 
     mov $'B', %al ; call beacon
     /* enable PAE, load tables + OUR GDT, then switch on paging */
@@ -116,7 +96,8 @@ fill:
     mov %cr0, %eax
     or  $0x80010000, %eax            /* PG | WP */
     mov %eax, %cr0
-    mov $'F', %al ; call beacon
+    jmp 1f                           /* flush pipeline with paging on */
+1:  mov $'F', %al ; call beacon
 
     ljmp $0x08, $long_mode
 
