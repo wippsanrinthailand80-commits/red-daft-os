@@ -93,23 +93,28 @@ fill:
     loop fill
 
     mov $'B', %al ; call beacon
-    /* enable PAE, page tables, long mode + paging */
+    /* enable PAE, load tables + OUR GDT, then switch on paging */
     mov %cr4, %eax
     or  $0x20, %eax                  /* PAE */
     mov %eax, %cr4
     lea pml4, %eax
     mov %eax, %cr3
     mov $'C', %al ; call beacon
+
+    lgdt gdtr                        /* our GDT before paging, always */
+    mov $'D', %al ; call beacon
+
     mov $0xC0000080, %ecx            /* EFER MSR */
     rdmsr
     or  $0x100, %eax                 /* LME: long mode enable */
     wrmsr
-    mov $'D', %al ; call beacon
+    mov $'E', %al ; call beacon
+
     mov %cr0, %eax
     or  $0x80010000, %eax            /* PG | WP */
     mov %eax, %cr0
+    mov $'F', %al ; call beacon
 
-    lgdt gdtr
     ljmp $0x08, $long_mode
 
 .code64
