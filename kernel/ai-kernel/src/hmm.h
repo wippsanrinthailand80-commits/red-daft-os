@@ -1,17 +1,27 @@
-/* hmm.h — Heterogeneous Memory Manager v3: specialized pools.
+/* hmm.h — Heterogeneous Memory Manager v3: 10 specialized pools.
  *
- * Three pools with distinct policies share one elastic budget donated from
- * the buddy PMM (static quotas in phase 1):
+ * Ten pools share one elastic budget donated from the buddy PMM
+ * (static quotas in phase 1, ~10% each). Policies are per-pool:
  *
- *   POOL_WEIGHTS  model weights, linear streaming. LRU + frequency
- *                 tie-break + sequential prefetch. Read-mostly; dirty
- *                 pages (training passes) write back on eviction.
- *   POOL_KV       attention/KV states. Arena allocator, append-only,
- *                 NEVER auto-evicted: sessions own their extent until
- *                 explicitly ended (real-vLLM semantics: KV OOM is
- *                 reported, not silently dropped).
- *   POOL_SCRATCH  workspace temporaries. FIFO ring; wholesale recycle;
- *                 dirty contents write back when the ring wraps.
+ *   POOL_WEIGHTS      model weights, linear streaming. LRU + frequency
+ *                     tie-break + sequential prefetch. Read-mostly; dirty
+ *                     pages (training passes) write back on eviction.
+ *   POOL_KV           attention/KV states. Arena allocator, append-only,
+ *                     NEVER auto-evicted: sessions own their extent until
+ *                     explicitly ended (real-vLLM semantics: KV OOM is
+ *                     reported, not silently dropped).
+ *   POOL_SCRATCH      workspace temporaries. FIFO ring; wholesale recycle;
+ *                     dirty contents write back when the ring wraps.
+ *   POOL_ACTIVATIONS  intermediate activations. LRU.
+ *   POOL_EMBED        embeddings. LRU + prefetch.
+ *   POOL_ATTENTION    attention buffers. LRU.
+ *   POOL_WORKSPACE    extra workspace. FIFO.
+ *   POOL_CACHE        generic cache. LRU.
+ *   POOL_TENSOR       tensor staging. LRU.
+ *   POOL_GENERIC      fallback / user-defined. LRU.
+ *
+ * Kernel 2 (AI-Kernel) exposes all 10 via hmm_register_model_p(pool=0..9)
+ * and Demo Box `kernel pool` / `kernel hmm` commands.
  */
 #ifndef AIK_HMM_H
 #define AIK_HMM_H
@@ -21,10 +31,17 @@
 #define HMM_PAGE_SIZE   4096u
 
 typedef enum {
-    POOL_WEIGHTS = 0,
-    POOL_KV      = 1,
-    POOL_SCRATCH = 2,
-    POOL_COUNT   = 3
+    POOL_WEIGHTS     = 0,
+    POOL_KV          = 1,
+    POOL_SCRATCH     = 2,
+    POOL_ACTIVATIONS = 3,
+    POOL_EMBED       = 4,
+    POOL_ATTENTION   = 5,
+    POOL_WORKSPACE   = 6,
+    POOL_CACHE       = 7,
+    POOL_TENSOR      = 8,
+    POOL_GENERIC     = 9,
+    POOL_COUNT       = 10
 } hmm_pool_t;
 
 typedef struct hmm_page {
@@ -33,7 +50,7 @@ typedef struct hmm_page {
     u64 host_addr;
     u64 vram_addr;
     u32 model_id, page_idx;
-    u8  pool        : 2;                   /* hmm_pool_t */
+    u8  pool        : 4;                   /* hmm_pool_t: 0..9 needs 4 bits */
     u8  freq        : 2;
     u8  dirty       : 1;
     u8  resident    : 1;

@@ -25,7 +25,7 @@ static void help(void){
     kprintf("commands:\n"
             "  ls               list models\n"
             "  verify <m|all>   stream through HMM, check vs CPU reference\n"
-            "  stats            HMM + PMM statistics\n"
+            "  stats            HMM + PMM statistics (10 pools)\n"
             "  restore <pages>  give VRAM back to main RAM allocator\n"
             "  pci              enumerate PCI devices\n"
             "  mem              memory map summary\n"
@@ -35,6 +35,8 @@ static void help(void){
             "  kernel list      list bootable kernels (GRUB menu)\n"
             "  kernel switch <name>  set next-boot target: aik|linux (hint; use daft-kernel on Linux for persistence)\n"
             "  kernel reboot [name]  set target and reboot now\n"
+            "  kernel pool [id] list or inspect HMM pools (0..9)\n"
+            "  pool [id]        alias for kernel pool\n"
             "  reboot [name]    alias for kernel reboot\n"
             "  uname            alias for kernel status\n"
             "  clear|about|help\n");
@@ -55,7 +57,7 @@ static void do_verify(const char *arg){
 
 /* ---- kernel subcommands ---- */
 static void kernel_status(void){
-    kprintf("kernel: Red Daft AI-Kernel v0.2 'Demo Box' (HMM v3)\n");
+    kprintf("kernel: Red Daft AI-Kernel v0.2 'Demo Box' (HMM v3, 10 pools)\n");
     kprintf("arch:   x86_64 bare-metal | multiboot2 | buddy PMM | PIT 100Hz\n");
     kprintf("uptime: %llu ticks (~%llus)\n", ticks(), ticks()/100);
     kprintf("next:   %s\n", next_target[0] ? next_target : "(default)");
@@ -108,6 +110,30 @@ static void kernel_reboot(const char *arg){
     if(next_target[0]) reboot_to(next_target);
     else reboot();
 }
+static void kernel_pool(const char *arg){
+    arg = skip_spaces(arg);
+    if(!*arg){
+        kprintf("[pool] 10 pools (0..9):\n");
+        kprintf("  0 weights  LRU+freq+prefetch\n");
+        kprintf("  1 kv       arena (never evict)\n");
+        kprintf("  2 scratch  FIFO\n");
+        kprintf("  3 activ    LRU\n");
+        kprintf("  4 embed    LRU\n");
+        kprintf("  5 attn     LRU\n");
+        kprintf("  6 worksp   FIFO\n");
+        kprintf("  7 cache    LRU\n");
+        kprintf("  8 tensor   LRU\n");
+        kprintf("  9 generic  LRU\n");
+        hmm_stats();
+        return;
+    }
+    u32 id=0; int has_digit=0;
+    for(const char *p=arg; *p>='0'&&*p<='9'; p++){ has_digit=1; id=id*10+(*p-'0'); }
+    if(!has_digit || id>=10){ kprintf("usage: kernel pool [0..9]\n"); return; }
+    kprintf("[pool %u] detail:\n", id);
+    hmm_stats();
+    kprintf("  -> use hmm_register_model_p(name, buf, npages, %u) to target this pool\n", id);
+}
 static void do_kernel(const char *arg){
     arg = skip_spaces(arg);
     if(!*arg || streql(arg,"status") || streql(arg,"info") || streql(arg,"uname")){
@@ -127,13 +153,21 @@ static void do_kernel(const char *arg){
     if(streql(arg,"hmm") || streql(arg,"stats")){
         hmm_stats(); return;
     }
+    if(starts_with(arg,"pool")){
+        const char *rest = arg+4;
+        if(*rest==' ') rest = skip_spaces(rest+1);
+        else if(*rest==0) rest = "";
+        else { kprintf("unknown kernel subcommand '%s' (try: kernel help)\n", arg); return; }
+        kernel_pool(rest); return;
+    }
     if(streql(arg,"help")){
         kprintf("kernel subcommands:\n"
                 "  kernel status          show running kernel + HMM + uptime\n"
                 "  kernel list            list GRUB boot entries\n"
                 "  kernel switch <name>   set next-boot hint (aik|linux|linux-safe)\n"
                 "  kernel reboot [name]   switch (optional) and reboot now\n"
-                "  kernel hmm             alias for HMM stats\n");
+                "  kernel hmm             alias for HMM stats (10 pools)\n"
+                "  kernel pool [id]       list/inspect HMM pools 0..9\n");
         return;
     }
     kprintf("unknown kernel subcommand '%s' (try: kernel help)\n", arg);
@@ -149,7 +183,7 @@ static void exec(char *l){
     rest = (char*)skip_spaces(rest);
     if(!kstrcmp(sp,"help")) help();
     else if(!kstrcmp(sp,"about"))
-        kprintf("Red Daft AI-Kernel v0.2 'Demo Box'\nbare-metal x86_64 | buddy PMM | HMM v3 elastic VRAM cache\n");
+        kprintf("Red Daft AI-Kernel v0.2 'Demo Box'\nbare-metal x86_64 | buddy PMM | HMM v3 10-pool elastic VRAM cache\n");
     else if(!kstrcmp(sp,"clear")) kprintf("\n\n\n");
     else if(!kstrcmp(sp,"ls")){
         for(u32 m=0;m<model_count();m++) kprintf("  [%u] %s\n",m,model_name(m));
@@ -179,6 +213,7 @@ static void exec(char *l){
     /* kernel-switch system */
     else if(!kstrcmp(sp,"kernel") || !kstrcmp(sp,"kctl")) do_kernel(rest);
     else if(!kstrcmp(sp,"reboot")) kernel_reboot(rest);
+    else if(!kstrcmp(sp,"pool")){ kernel_pool(rest); }
     else if(!kstrcmp(sp,"uname")) kernel_status();
     else kprintf("unknown: '%s' (try help)\n", sp);
 }

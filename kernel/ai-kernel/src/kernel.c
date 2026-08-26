@@ -10,7 +10,7 @@ void kernel_main(u64 mbi){
     kprintf("\n");
     kprintf("=============================================\n");
     kprintf("  Red Daft AI-KERNEL v0.2  --  Demo Box\n");
-    kprintf("  from-scratch x86_64 | buddy PMM | HMM v3\n");
+    kprintf("  from-scratch x86_64 | buddy PMM | HMM v3 (10 pools)\n");
     kprintf("=============================================\n");
 
     dbgmark('2');
@@ -82,6 +82,21 @@ void kernel_main(u64 mbi){
         for(int i=0;i<200;i++){ scratch_next(1024,&rot); anyrot|=rot; }
         if(anyrot) kprintf("[scratch] OK ring rotated under pressure\n");
         else { kprintf("[scratch] FAIL (no rotation)\n"); ok=0; }
+    }
+    /* 10-pool exercise: prove every pool from 3..9 can fault */
+    dbgmark('E');
+    {
+        static u32 ten_pool_buf[1024];
+        static const char *ten_names[10]={"weights","kv","scratch","activ","embed","attn","worksp","cache","tensor","generic"};
+        // pools 0..2 already exercised above; now hit 3..9
+        for(int pid=3; pid<10; pid++){
+            int id = hmm_register_model_p(ten_names[pid], ten_pool_buf, 1, (hmm_pool_t)pid);
+            if(id<0){ kprintf("[pool %d %s] register FAIL\n", pid, ten_names[pid]); ok=0; continue; }
+            u64 va = hmm_fault((u32)id, 0);
+            if(va) kprintf("[pool %d %s] OK va=%llx\n", pid, ten_names[pid], (unsigned long long)va);
+            else { kprintf("[pool %d %s] FAIL fault\n", pid, ten_names[pid]); ok=0; }
+        }
+        kprintf("[pool] 10-pool exercise done\n");
     }
     dbgmark('8');
     hmm_stats();

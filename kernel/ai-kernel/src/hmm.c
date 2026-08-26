@@ -1,11 +1,19 @@
-/* hmm.c — Heterogeneous Memory Manager v3: three specialized pools.
+/* hmm.c — Heterogeneous Memory Manager v3: ten specialized pools.
  *
- *   POOL_WEIGHTS  LRU + freq + sequential prefetch (streaming inference)
- *   POOL_KV       arena sessions, never auto-evicted (attention states)
- *   POOL_SCRATCH  FIFO ring, wholesale recycle (workspaces)
+ *   POOL_WEIGHTS      LRU + freq + prefetch (streaming inference)
+ *   POOL_KV           arena sessions, never auto-evicted
+ *   POOL_SCRATCH      FIFO ring, wholesale recycle
+ *   POOL_ACTIVATIONS  LRU
+ *   POOL_EMBED        LRU (+prefetch on hit)
+ *   POOL_ATTENTION    LRU
+ *   POOL_WORKSPACE    FIFO
+ *   POOL_CACHE        LRU
+ *   POOL_TENSOR       LRU
+ *   POOL_GENERIC      LRU (fallback / user-defined)
  *
- * Static quotas phase-1: weights 50% / kv 25% / scratch 25% of the global
- * budget, donated run-by-run from the buddy PMM.
+ * Ten pools share one elastic budget (phase-1 static quotas, ~10% each)
+ * donated run-by-run from the buddy PMM. Kernel 2 (AI-Kernel) exposes
+ * all 10 via hmm_register_model_p(pool=0..9).
  *
  * Locking: one spinlock guards all pool/hashtable/list state; compute paths
  * hold it only during fault resolution. */
@@ -137,9 +145,9 @@ static int evict_weights(void){
     page_free(v);
     return 0;
 }
-static int evict_scratch(void){
-    pool_t*L=&PL[POOL_SCRATCH];
-    hmm_page_t*v=L->tail;                /* FIFO: oldest rotation */
+static int evict_fifo(hmm_pool_t pid){
+    pool_t*L=&PL[pid];
+    hmm_page_t*v=L->tail;                /* FIFO: oldest */
     if(!v) return -1;
     page_writeback(v);
     ht_remove(v);
@@ -150,13 +158,28 @@ static int evict_scratch(void){
     page_free(v);
     return 0;
 }
+static int evict_scratch(void){ return evict_fifo(POOL_SCRATCH); }
+static int evict_lru(hmm_pool_t pid){
+    pool_t*L=&PL[pid];
+    hmm_page_t*v=L->tail;
+    if(!v) return -1;
+    page_writeback(v);
+    ht_remove(v);
+    unlink_page(L,v);
+    slot_free(L,v->vram_addr);
+    v->vram_addr=0;
+    L->evictions++; G.bytes_migrated+=HMM_PAGE_SIZE;
+    page_free(v);
+    return 0;
+}
 static int ensure_capacity(hmm_pool_t pid){
     pool_t*L=&PL[pid];
     if(pool_has_slot(L)) return 0;
     if(pool_grow(pid)==0) return 0;      /* every pool grows to its quota */
     if(pid==POOL_WEIGHTS) return evict_weights();
-    if(pid==POOL_SCRATCH)return evict_scratch();
-    return -1;                           /* KV: explicit OOM, never evicts */
+    if(pid==POOL_SCRATCH || pid==POOL_WORKSPACE) return evict_fifo(pid);
+    if(pid==POOL_KV) return -1;          /* KV: explicit OOM, never evicts */
+    return evict_lru(pid);               /* all other pools: generic LRU */
 }
 
 /* ------------------------- load path ------------------------- */
@@ -212,9 +235,20 @@ int hmm_init(u64 initial_pool_pages, u64 max_pool_pages){
     kmemset(&G,0,sizeof(G)); kmemset(models,0,sizeof(models));
     kmemset(PL,0,sizeof(PL)); kmemset(page_slab,0,sizeof(page_slab));
     nmodels=0; cap_pages=max_pool_pages;
-    PL[POOL_WEIGHTS].quota_pages = max_pool_pages/2;
-    PL[POOL_KV].quota_pages      = max_pool_pages/4;
-    PL[POOL_SCRATCH].quota_pages = max_pool_pages - max_pool_pages/2 - max_pool_pages/4;
+    /* 10 pools: weighted quotas so the demo still fits (kv 64 needs >=64)
+     * weights 30% / kv 20% / scratch 10% / remaining 7 pools share 40% */
+    u64 w = max_pool_pages * 30 / 100;
+    u64 k = max_pool_pages * 20 / 100;
+    u64 s = max_pool_pages * 10 / 100;
+    u64 rem = max_pool_pages - w - k - s;
+    PL[POOL_WEIGHTS].quota_pages     = w;
+    PL[POOL_KV].quota_pages          = k;
+    PL[POOL_SCRATCH].quota_pages     = s;
+    u64 base = rem / 7;
+    u64 r2   = rem % 7;
+    for(u32 i=3;i<POOL_COUNT;i++) PL[i].quota_pages = base + (i-3 < r2 ? 1 : 0);
+    /* ensure at least 1 page per pool for tiny max values */
+    for(u32 i=0;i<POOL_COUNT;i++) if(!PL[i].quota_pages) PL[i].quota_pages=1;
     u64 first=initial_pool_pages;
     if(first>PL[POOL_WEIGHTS].quota_pages) first=PL[POOL_WEIGHTS].quota_pages;
     u64 b=pmm_donate_range((u32)first);
@@ -222,8 +256,9 @@ int hmm_init(u64 initial_pool_pages, u64 max_pool_pages){
     int o=0;while((1u<<o)<first&&o<10)o++;
     PL[POOL_WEIGHTS].runs[PL[POOL_WEIGHTS].nruns++]=(run_t){b,first,0,o};
     PL[POOL_WEIGHTS].cur_pages=first;
-    kprintf("[hmm] v3 pools: weights=%lluK kv=%lluK scratch=%lluK | free RAM %lluK\n",
-        PL[0].quota_pages*4,PL[1].quota_pages*4,PL[2].quota_pages*4,pmm_free_pages()*4);
+    kprintf("[hmm] v3 10 pools: quotas=");
+    for(u32 i=0;i<POOL_COUNT;i++) kprintf("%lluK%s", PL[i].quota_pages*4, i+1<POOL_COUNT?",":"");
+    kprintf(" | free RAM %lluK\n", pmm_free_pages()*4);
     return 0;
 }
 int hmm_register_model_p(const char*n,void*buf,u64 np,hmm_pool_t pool){
@@ -353,7 +388,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
     return freed;
 }
 void hmm_stats(void){
-    static const char*nm[POOL_COUNT]={"weights","kv","scratch"};
+    static const char*nm[POOL_COUNT]={"weights","kv","scratch","activ","embed","attn","worksp","cache","tensor","generic"};
     u64 mb=0; for(u32 i=0;i<nmodels;i++)
         if(models[i].name && models[i].name[0]!='_') mb+=models[i].npages*HMM_PAGE_SIZE;
     for(u32 p=0;p<POOL_COUNT;p++)
