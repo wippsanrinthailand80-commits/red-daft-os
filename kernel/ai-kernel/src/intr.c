@@ -21,7 +21,11 @@ static void set_gate(int n, u64 handler){
     idt[n].hi   = handler >> 16;
 }
 
-void irq_timer_c(void){ tick_count++; outb(0x20,0x20); }
+void irq_timer_c(void){
+    dbgmark('T');
+    tick_count++;
+    outb(0x20,0x20);
+}
 void irq_kbd_c(void){
     u8 sc = inb(0x60);
     if(sc & 0x80) goto done;          /* key release */
@@ -69,8 +73,8 @@ void idt_init(void){
     outb(0x21,0x20); outb(0xA1,0x28);
     outb(0x21,0x04); outb(0xA1,0x02);
     outb(0x21,0x01); outb(0xA1,0x01);
-    /* mask everything except: IRQ0 timer (kbd enabled later) */
-    outb(0x21,0xFE);
+    /* mask EVERYTHING for now; caller unmasks step-by-step */
+    outb(0x21,0xFF);
     outb(0xA1,0xFF);
     dbgmark('I');
     /* sti deliberately NOT here: caller enables interrupts after PIT setup */

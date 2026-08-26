@@ -22,6 +22,9 @@ void kernel_main(u64 mbi){
     pit_init(100);                 /* 100 Hz tick */
     dbgmark('s');
     __asm__ volatile("sti");
+    dbgmark('n');                  /* survived bare sti (no unmasked IRQs) */
+    outb(0x21,0xFE);               /* now unmask ONLY the timer */
+    sleep_ticks(3);                /* let it fire a few times */
     dbgmark('4');
     pci_scan();
 
