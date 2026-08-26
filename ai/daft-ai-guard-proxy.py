@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-daft-ai-guard-proxy.py — local AI proxy that enforces daft-ai-guard in front of
-Ollama. Listens on 11435; forwards to Ollama on 127.0.0.1:11434.
+daft-ai-guard-proxy.py v2 — local AI proxy enforcing daft-ai-guard v2 in front
+of Ollama. Listens on 127.0.0.1:11435 -> upstream 127.0.0.1:11434.
 
-Request prompts are scanned by daft-ai-guard.py: weaponized/illegal content is
-blocked (HTTP 403) before reaching the model. Responses are passed through.
-This is the safe-by-default path for the local model; raw Ollama (11434) stays
-available for trusted use.
+Routing (exit protocol of ai/daft-ai-guard.py):
+    0 ALLOW  -> forward untouched
+    1 BOOST  -> stdout JSON {"system_boost": "..."}; inject as system context
+                (chat: prepend message; generate: set "system" field) then
+                forward — this converts refusals into authorized-scope answers
+    2 BLOCK  -> HTTP 403 before anything reaches the model
+
+Every decision is audited by the guard itself (/var/lib/daft-ai-guard/audit.log).
+This is a filter OVERLAY, not a bypass: weaponized content stays blocked.
 """
 import json
 import os
@@ -16,31 +21,40 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 UPSTREAM = "http://127.0.0.1:11434"
-GUARD = "/opt/daft/ai/daft-ai-guard.py"
+GUARD = os.environ.get("DAFT_GUARD", "/opt/daft/ai/daft-ai-guard.py")
 LISTEN = ("127.0.0.1", 11435)
 
 
-def _blocked(text: str) -> bool:
+def _guard(prompt_text: str):
+    """Returns (verdict_str, boost_or_None). verdict in {'ALLOW','BOOST','BLOCK'}."""
     if not os.path.exists(GUARD):
-        return False
-    p = subprocess.run(["python3", GUARD], input=text,
+        return ("ALLOW", None)
+    p = subprocess.run(["python3", GUARD], input=prompt_text,
                        capture_output=True, text=True)
-    return p.returncode == 2
+    if p.returncode == 2:
+        return ("BLOCK", p.stderr.strip())
+    if p.returncode == 1:
+        try:
+            return ("BOOST", json.loads(p.stdout).get("system_boost"))
+        except Exception:
+            return ("BOOST", None)
+    return ("ALLOW", None)
 
 
 def _extract_prompt(body: bytes):
     try:
         d = json.loads(body or b"{}")
     except Exception:
-        return None
+        return None, None
     if "prompt" in d:
-        return str(d["prompt"])
-    if "messages" in d and isinstance(d["messages"], list):
+        return str(d["prompt"]), d
+    if isinstance(d.get("messages"), list) and d["messages"]:
         for m in reversed(d["messages"]):
             c = m.get("content")
             if c:
-                return str(c)
-    return None
+                return str(c), d
+        return "", d
+    return None, d
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,24 +65,47 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
         if self.path.rstrip("/") in ("/api/generate", "/api/chat"):
-            prompt = _extract_prompt(body)
-            if prompt and _blocked(prompt):
-                self.send_response(403)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(
-                    {"error": "blocked by daft-ai-guard: weaponized/illegal content"}).encode())
-                return
+            prompt, data = _extract_prompt(body)
+            if prompt is not None:
+                verdict, extra = _guard(prompt)
+                if verdict == "BLOCK":
+                    self._json(403, {"error":
+                        f"blocked by daft-ai-guard ({extra or 'weaponized content'})"})
+                    return
+                if verdict == "BOOST" and data is not None and extra:
+                    self._inject(data, extra)
+                    body = json.dumps(data).encode()
         self._proxy(body)
 
+    def _inject(self, data: dict, boost: str):
+        """Authorization-scoped system prompt injection."""
+        if isinstance(data.get("messages"), list):
+            data["messages"] = [{"role": "system", "content": boost}] + \
+                               [m for m in data["messages"]
+                                if m.get("role") != "system"]
+        elif "prompt" in data:
+            # generate API has no separate system slot that merges with the
+            # Modelfile; prefix so both are seen.
+            data["prompt"] = f"[{boost}]\n\n{data['prompt']}"
+
+    def _json(self, code: int, obj: dict):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode())
+
     def do_GET(self):
+        self._proxy(b"")
+
+    def do_DELETE(self):
         self._proxy(b"")
 
     def _proxy(self, body: bytes):
         url = UPSTREAM + self.path
         req = urllib.request.Request(url, data=body or None,
                                      headers={k: v for k, v in self.headers.items()
-                                              if k.lower() != "host"}, method=self.command)
+                                              if k.lower() != "host"},
+                                     method=self.command)
         try:
             with urllib.request.urlopen(req, timeout=300) as resp:
                 self.send_response(resp.status)
@@ -82,10 +119,7 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
         except Exception as e:  # upstream down or refused
-            self.send_response(502)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": f"upstream error: {e}"}).encode())
+            self._json(502, {"error": f"upstream error: {e}"})
 
 
 def main():

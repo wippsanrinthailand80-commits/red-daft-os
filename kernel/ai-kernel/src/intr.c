@@ -11,8 +11,7 @@ static struct idt_entry idt[256];
 static struct idt_ptr idtp;
 
 extern void irq0_stub(void); extern void irq1_stub(void);
-/* thunks in boot.S: push vector, jmp common */
-extern void intr_common(u64 vec);
+extern void irq_default_stub(void);
 
 static void set_gate(int n, u64 handler){
     idt[n].lo   = handler & 0xFFFF;
@@ -37,6 +36,11 @@ void irq_kbd_c(void){
 done:
     outb(0x20,0x20);
 }
+void irq_default_c(void){
+    /* stray/spurious IRQ: EOI both PICs, ignore */
+    outb(0xA0,0x20);
+    outb(0x20,0x20);
+}
 
 u64 ticks(void){ return tick_count; }
 void sleep_ticks(u64 t){ u64 end=tick_count+t; while(tick_count<end) __asm__ volatile("hlt"); }
@@ -52,6 +56,9 @@ char kbd_pollkey(void){
 
 void idt_init(void){
     kmemset(idt,0,sizeof(idt));
+    /* catch-all first: every IRQ vector gets a safe EOI handler, so a
+     * stray device interrupt can never hit an empty gate (#NP->#DF). */
+    for(int i=32;i<256;i++) set_gate(i,(u64)irq_default_stub);
     set_gate(32,(u64)irq0_stub);
     set_gate(33,(u64)irq1_stub);
     idtp.limit = sizeof(idt)-1; idtp.base = (u64)idt;
@@ -61,7 +68,9 @@ void idt_init(void){
     outb(0x21,0x20); outb(0xA1,0x28);
     outb(0x21,0x04); outb(0xA1,0x02);
     outb(0x21,0x01); outb(0xA1,0x01);
-    outb(0x21,0x00); outb(0xA1,0x00);
+    /* mask everything except: IRQ0 timer, IRQ1 kbd, IRQ2 cascade */
+    outb(0x21,0xF8);
+    outb(0xA1,0xFF);
     __asm__ volatile("sti");
 }
 
