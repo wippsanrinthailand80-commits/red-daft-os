@@ -33,6 +33,7 @@ int  serial_pollc(void);         /* -1 if empty */
 void con_init(void);
 void con_putc(char c);
 void con_puts(const char*);
+void dbgmark(char);
 
 /* string */
 usize kstrlen(const char*);

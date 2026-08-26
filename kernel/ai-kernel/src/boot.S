@@ -32,20 +32,26 @@ stack_top:
 .global _start
 _start:
     cli
-    /* earliest possible serial beacon: init COM1 raw, print 'S' */
+    /* earliest possible serial beacon: init COM1 raw, print 'S'
+     * ports: 3F8 data/dll, 3F9 ier/dlh, 3FB lcr, 3FA fifo, 3FC mcr */
+    mov $0x3FB, %edx
+    mov $0x80, %al ; out %al, %dx        /* LCR: DLAB on */
     mov $0x3F8, %edx
-    mov $0x80, %al ; out %al, %dx        /* DLAB */
-    mov $0x3F8, %edx
-    mov $0x01, %al ; out %al, %dx        /* div lo =1 */
-    inc %edx ; xor %al,%al ; out %al, %dx/* div hi */
-    inc %edx ; mov $0x03, %al ; out %al,%dx /* 8N1 */
-    inc %edx ; mov $0xC7, %al ; out %al,%dx /* fifo */
-    inc %edx ; mov $0x0B, %al ; out %al,%dx /* modem */
-    mov $'S', %al ; dec %edx ; dec %edx ; dec %edx ; dec %edx
-    out %al, %dx                          /* TX -> 'S' */
-    mov $0xE9, %edx
+    mov $0x01, %al ; out %al, %dx        /* DLL = 1 -> 115200 */
+    inc %edx
+    xor %al, %al ; out %al, %dx          /* DLH = 0 */
+    mov $0x3FB, %edx
+    mov $0x03, %al ; out %al, %dx        /* LCR: 8N1, DLAB off */
+    mov $0x3FA, %edx
+    mov $0xC7, %al ; out %al, %dx        /* FIFO */
+    mov $0x3FC, %edx
+    mov $0x0B, %al ; out %al, %dx        /* MCR */
+    mov $0xE9, %edx                      /* qemu debugcon */
     mov $'S', %al
-    out %al, %dx                          /* debugcon -> 'S' */
+    out %al, %dx
+    mov $0x3F8, %edx
+    mov $'S', %al
+    out %al, %dx                         /* TX -> 'S' */
 
     mark:                                  /* clobbers eax/edx */
     mov $stack_top, %esp
