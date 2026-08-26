@@ -354,7 +354,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
 }
 void hmm_stats(void){
     static const char*nm[POOL_COUNT]={"weights","kv","scratch"};
-    u64 mb=0; for(u32 i=0;i<nmodels-1;i++)
+    u64 mb=0; for(u32 i=0;i<nmodels;i++)
         if(models[i].name && models[i].name[0]!='_') mb+=models[i].npages*HMM_PAGE_SIZE;
     for(u32 p=0;p<POOL_COUNT;p++)
         kprintf("[hmm] %-8s cur=%lluKB quota=%lluKB evict=%llu hit=%llu wb=%llu\n",

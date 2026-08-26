@@ -10,7 +10,7 @@ void kernel_main(u64 mbi){
     kprintf("\n");
     kprintf("=============================================\n");
     kprintf("  Red Daft AI-KERNEL v0.2  --  Demo Box\n");
-    kprintf("  from-scratch x86_64 | buddy PMM | HMM v2\n");
+    kprintf("  from-scratch x86_64 | buddy PMM | HMM v3\n");
     kprintf("=============================================\n");
 
     dbgmark('2');
