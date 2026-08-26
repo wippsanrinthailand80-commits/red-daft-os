@@ -64,3 +64,10 @@ int model_verify(u32 m){
 }
 const char *model_name(u32 m){ return m<4?defs[m].name:"?"; }
 u32 model_count(void){ return 4; }
+/* canary: cheap checksum of model-0 backing store (corruption detector) */
+const s32 *hb0(void){ return host_buf[0]; }
+u32 hb0_sum(void){
+    u32 s=0;
+    for(u32 i=0;i<MODEL_PAGES*WORDS_PER_PAGE;i+=97) s^=host_buf[0][i];
+    return s;
+}

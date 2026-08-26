@@ -37,10 +37,18 @@ void kernel_main(u64 mbi){
 
     dbgmark('7');
     kprintf("[boot] running self-demo...\n");
+    extern u32 hb0_sum(void);
+    u32 sum_before = hb0_sum();
     int ok=1;
     for(u32 m=0;m<model_count();m++){
         dbgmark('A'+(char)m);
         ok &= model_verify(m);
+        u32 sum_now = hb0_sum();
+        if(sum_now != sum_before){
+            kprintf("[!] host_buf[0] CORRUPTED after model %u (sum %u -> %u)\n",
+                    m, sum_before, sum_now);
+            sum_before = sum_now;
+        }
     }
     dbgmark('8');
     hmm_stats();

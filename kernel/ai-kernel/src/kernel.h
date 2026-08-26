@@ -78,6 +78,7 @@ void models_init(void);
 int  model_verify(u32 m);
 const char *model_name(u32 m);
 u32  model_count(void);
+u32  hb0_sum(void);
 void shell_run(void) __attribute__((noreturn));
 
 #endif
