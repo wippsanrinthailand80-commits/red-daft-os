@@ -263,7 +263,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
 }
 
 void hmm_stats(void){
-    u64 mb=0; for(u32 i=0;i<nmodels;i++) mb+=models[i].npages*4;
+    u64 mb=0; for(u32 i=0;i<nmodels;i++) mb+=models[i].npages*HMM_PAGE_SIZE;
     kprintf("[hmm] faults=%llu hits=%llu misses=%llu hit%%=%llu\n",
             H.faults,H.hits,H.misses, H.faults?(H.hits*100)/H.faults:0);
     kprintf("[hmm] evict=%llu writeback=%llu prefetched=%llu migrated=%lluKB\n",

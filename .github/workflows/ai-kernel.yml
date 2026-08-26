@@ -28,7 +28,8 @@ jobs:
           cd kernel/ai-kernel
           make smoke || true
           echo "----- serial output -----"; cat smoke.log 2>/dev/null || true; echo "-------------------------"
-          grep -q "ALL MODELS MATCH" smoke.log
+          N=$(grep -c -- '-> MATCH' smoke.log || true)
+          [ "$N" -eq 4 ] || { echo "expected 4 verified models, got $N"; exit 1; }
           grep -q "SELF-TEST PASS"   smoke.log
           grep -q "elasticity check: returned 128 pages" smoke.log
           echo "AI-KERNEL SMOKE PASS"
