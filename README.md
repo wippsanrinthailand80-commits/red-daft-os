@@ -121,14 +121,19 @@ kernel (`kernel/ai-kernel/`) that proves the Heterogeneous Memory Manager:
 
 - Multiboot2 → long mode → identity paging; buddy PMM; kernel heap;
   spinlocks; PIT/PS2/serial; PCI enumeration.
-- **HMM v2**: an elastic VRAM pool that is *donated from* and *restored to*
-  the physical allocator on demand; LRU eviction with frequency tie-break,
-  sequential prefetch, dirty writeback; per-migration integrity checks.
- - Streams models through ≤2 MB of pool with automatic CPU-reference
-   verification of every result (CI-proven: 1024 faults, 512 evictions, 4/4 MATCH).
- - Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`
-   plus **`kernel` switcher** — `kernel status|list|switch|reboot`, `reboot`, `uname`
-   (pairs with Linux-side `daft-kernel`).
+ - **HMM v3 (10 pools)**: elastic VRAM pools *donated from* and *restored to*
+   the physical allocator on demand. Kernel 2 exposes **10 pools**
+   (`weights/kv/scratch/activ/embed/attn/worksp/cache/tensor/generic`)
+   with per-pool policies: LRU+freq+prefetch (weights), arena never-evict (KV),
+   FIFO (scratch/worksp), generic LRU (others); dirty writeback + per-migration
+   integrity checks. Weighted quotas (30%/20%/10%/40% over 7) with run-by-run donation.
+  - Streams models through ≤2 MB of pool with automatic CPU-reference
+    verification of every result (CI-proven: ~2055 faults, ~1895 evictions, 7/7 MATCH
+    incl. training writeback, plus KV/scratch/10-pool exercises).
+  - Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`
+    plus **`kernel` switcher** — `kernel status|list|switch|reboot|pool|hmm`,
+    `reboot`, `pool`, `uname` (pairs with Linux-side `daft-kernel`). `kernel pool`
+    lists 10 pools; `pool <id>` inspects.
 
 ```bash
 make -C kernel/ai-kernel smoke   # builds ELF + boots it under QEMU headlessly
