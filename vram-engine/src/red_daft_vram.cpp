@@ -774,13 +774,8 @@ bool VramEngine::deallocate(BlockHandle handle) {
         std::lock_guard<std::mutex> lock(p.mutex());
         blk = p.untrack_block(handle);
         if (!blk) return false;
-        // If this block was borrowed, return quota to Emergency
-        if (blk->is_borrowed) {
-            size_t sz = blk->aligned_size;
-            // Unlock before returning borrowed to avoid deadlock
-            // (return_borrowed locks both pools)
-            // So we defer that until after we release p.mutex
-        }
+        // If this block was borrowed, quota will be returned to Emergency
+        // after we release p.mutex (return_borrowed locks both pools)
     }
     bool was_borrowed = blk->is_borrowed;
     size_t borrowed_size = blk->aligned_size;

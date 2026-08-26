@@ -174,6 +174,11 @@ stage_configure() {
   cp -r ux "$ROOTFS/opt/daft/ux"
   cp -r kernel "$ROOTFS/opt/daft/kernel"
   rm -rf "$ROOTFS/opt/daft/kernel/ai-kernel/build" 2>/dev/null || true
+  if [[ -d vram-engine ]]; then
+    cp -r vram-engine "$ROOTFS/opt/daft/vram-engine"
+    rm -rf "$ROOTFS/opt/daft/vram-engine/build" 2>/dev/null || true
+    rm -rf "$ROOTFS/opt/daft/vram-engine/.cache" 2>/dev/null || true
+  fi
 
   # Operator account
   chroot "$ROOTFS" useradd -ms /bin/bash -G sudo agent 2>/dev/null || true

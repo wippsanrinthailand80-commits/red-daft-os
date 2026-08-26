@@ -3,7 +3,13 @@
 /* --- Physical page allocator (free-list of 4KB pages) ---
  * Pages are identity-mapped (see boot.S), so a physical address is also a
  * usable virtual pointer. The free list stores the next pointer inside the
- * page itself (embedded list), so no separate metadata is needed. */
+ * page itself (embedded list), so no separate metadata is needed.
+ *
+ * NOTE: Legacy alternative to buddy PMM (pmm.c). Not part of default build;
+ * kept for reference and to keep clang syntax-only clean.
+ * Renamed to pmm_init_legacy to avoid collision with pmm.c's pmm_init().
+ * To use, add mm.o to OBJS and call pmm_init_legacy(mbi).
+ */
 
 static u64 free_head = 0;
 static u64 page_count = 0;
@@ -44,7 +50,7 @@ static void add_region(u64 base, u64 len){
     while (p + PAGE_SIZE <= pend){ pmm_free_page(p); p += PAGE_SIZE; }
 }
 
-void pmm_init(void *mbi){
+void pmm_init_legacy(void *mbi){
     struct mb2_fixed *f = (void *)mbi;
     u32 off = 8;
     while (off < f->total_size){

@@ -55,6 +55,7 @@ modified versions / derivative OS forks requires prior written consent.
   (NVIDIA). The kernel already contains everything both need.
 
 ## Build
+### ISO (full OS)
 ```bash
 sudo bash build/build-iso.sh          # full pipeline -> iso/*.iso
 KEEP_WORK=1 sudo -E bash build/build-iso.sh   # incremental (reuses built kernel)
@@ -68,10 +69,24 @@ and published as a downloadable **red-daft-os-iso** artifact (~430 MB): GRUB →
 live-boot → hardened kernel, `agent` auto-logged into **XFCE**, plus a disk
 installer (`reddaft-install`).
 
+### AI-Kernel (bare-metal, 10 pools)
+```bash
+make -C kernel/ai-kernel              # → build/ai-kernel.elf
+make -C kernel/ai-kernel smoke        # QEMU headless: 7/7 MATCH, 10-pool, elasticity
+```
+
+### VRAM Engine (Linux, C++20, 10 pools)
+```bash
+cmake -B /tmp/vram-build -S vram-engine -DUSE_CUDA=OFF && cmake --build /tmp/vram-build -j  # CPU fallback
+/tmp/vram-build/vram_test             # 10×1 MiB, offload/prefetch, borrow → PASS
+pip install -e ./vram-engine          # pybind11 + optional torch
+python vram-engine/benchmarks/stress_3b.py --iters 3  # 3B stress, 28 layers
+```
+
 ## Container (runs anywhere, no boot required)
 ```bash
 docker build -t red-daft-os .
-docker run -it --rm red-daft-os          # ID card + daft-shell
+docker run -it --rm red-daft-os          # ID card + daft-shell + vram-engine at /opt/daft/vram-engine
 ```
 
 ## Package manager

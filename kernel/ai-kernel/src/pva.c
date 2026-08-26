@@ -63,14 +63,14 @@ static void pva_fault(u32 page_i){
         s64 victim = holds_model[j];
         if (victim >= 0){
             if (dirty[j])
-                for (int k = 0; k < PAGE_SIZE; k++)
+                for (u32 k = 0; k < PAGE_SIZE; k++)
                     model_host[victim][k] = dev_page_ptr[j][k];
             resident_dev[victim] = -1;
         }
         evicts++;
     }
     /* migrate host -> device */
-    for (int k = 0; k < PAGE_SIZE; k++)
+    for (u32 k = 0; k < PAGE_SIZE; k++)
         dev_page_ptr[j][k] = model_host[page_i][k];
     holds_model[j]   = (s64)page_i;
     resident_dev[page_i] = (s64)j;

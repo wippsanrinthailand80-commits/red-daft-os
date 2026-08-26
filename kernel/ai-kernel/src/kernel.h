@@ -1,7 +1,7 @@
 /* kernel.h — Red Daft AI-Kernel v0.2 "Demo Box"
  * From-scratch x86_64 kernel: buddy PMM, kernel heap, IRQs, spinlocks,
- * HMM v2 (VRAM-as-cache with restore/donate, LRU+freq eviction,
- * prefetch, dirty writeback) and an interactive serial demo box. */
+ * HMM v3 (10 pools, VRAM-as-cache with restore/donate, LRU/FIFO/ARENA,
+ * weighted quotas 30/20/10/40, prefetch, dirty writeback) and Demo Box. */
 #ifndef AIK_KERNEL_H
 #define AIK_KERNEL_H
 
@@ -15,6 +15,9 @@ typedef signed   int   s32;
 typedef signed   long  s64;
 typedef unsigned long  usize;
 #define NULL ((void*)0)
+#ifndef PAGE_SIZE
+#define PAGE_SIZE 4096u
+#endif
 
 static inline void outb(u16 p, u8 v){ __asm__ volatile("outb %0,%1"::"a"(v),"Nd"(p)); }
 static inline u8 inb(u16 p){ u8 r; __asm__ volatile("inb %1,%0":"=a"(r):"Nd"(p)); return r; }

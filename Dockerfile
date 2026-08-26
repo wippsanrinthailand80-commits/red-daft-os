@@ -18,6 +18,7 @@ COPY ai       /opt/daft/ai
 COPY shell    /opt/daft/shell
 COPY ux       /opt/daft/ux
 COPY kernel   /opt/daft/kernel
+COPY vram-engine /opt/daft/vram-engine
 COPY docs     /opt/daft/docs
 
 RUN chmod +x /opt/daft/packages/daft-pkg/*.sh \
