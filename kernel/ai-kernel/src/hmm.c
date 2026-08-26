@@ -58,9 +58,17 @@ static void lru_unlink(hmm_page_t *p){
 }
 
 /* ------------------------- elastic pool --------------------------- */
+#define MAX_SLOTS 4096
+static u64 slot_freelist[MAX_SLOTS];
+static u32 nfree_slots;
+
 static u64 pool_pages_now(void){ u64 t=0; for(u32 r=0;r<nruns;r++) t+=runs[r].pages; return t; }
 
+static void slot_free(u64 va){
+    if(va && nfree_slots<MAX_SLOTS) slot_freelist[nfree_slots++]=va;
+}
 static u64 slot_alloc(void){
+    if(nfree_slots) return slot_freelist[--nfree_slots];   /* recycle first */
     for(u32 r=0;r<nruns;r++)
         if(runs[r].used < runs[r].pages)
             return runs[r].base + runs[r].used++ * HMM_PAGE_SIZE;
@@ -103,8 +111,9 @@ static int evict_one(void){
     ht_remove(v);
     if(v==H.lru_head && v==H.lru_tail){ H.lru_head=H.lru_tail=NULL; }
     else lru_unlink(v);
+    slot_free(v->vram_addr);          /* recycle the device slot */
     H.evictions++;
-    H.bytes_migrated += HMM_PAGE_SIZE;   /* evicted payload left the device */
+    H.bytes_migrated += HMM_PAGE_SIZE;
     kfree(v);
     return 0;
 }
@@ -208,6 +217,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
                         ht_remove(p);
                         if(p==H.lru_head||p==H.lru_tail||p->lru_prev||p->lru_next)
                             lru_unlink(p);
+                        /* slot belongs to the run being dropped: drop, not recycle */
                         kfree(p);
                         again=1;
                         break;
