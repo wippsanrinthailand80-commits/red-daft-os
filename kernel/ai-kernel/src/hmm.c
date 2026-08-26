@@ -158,6 +158,14 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     q->resident  = 1;
     dbgmark('M');
     kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
+    /* self-check: did the migration land intact? */
+    {
+        const u64 *src=(const u64*)(usize)q->host_addr;
+        const u64 *dst=(const u64*)(usize)va;
+        for(u32 k=0;k<HMM_PAGE_SIZE/8;k++){
+            if(src[k]!=dst[k]){ dbgmark('X'); break; }
+        }
+    }
     dbgmark('m');
     H.bytes_migrated += HMM_PAGE_SIZE;
     ht_insert(q);
