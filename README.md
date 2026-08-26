@@ -1,7 +1,9 @@
 # Red Daft OS
 
 A coder-/security-first Linux distribution for red-teamers, security engineers,
-AI developers, and power users. 100% free and open-source.
+AI developers, and power users. **Source-available** — verbatim redistribution
+(commercial and non-commercial) is permitted; creation or distribution of
+modified versions / derivative OS forks requires prior written consent.
 
 > **Responsible use.** Red Daft OS ships offensive-security *tooling*, not
 > stealth malware. Every capability is transparent, labeled, and authorization-
@@ -309,4 +311,16 @@ docs/           architecture
 ```
 
 ## License
-GPL-3.0-or-later. See `LICENSE`.
+
+**Verbatim Distribution Only — No Derivatives Without Permission.**
+
+- You **may** use the Software privately (including private local modifications that you do **not** distribute).
+- You **may** reproduce and redistribute **verbatim, unmodified** copies of the Source Code and ISO images, **even commercially**, provided you retain all copyright/license notices and attribution to `Red Daft OS`.
+- You **may not** create, publish, or distribute any modified version, fork, or derivative OS based on this Software to any third party, in source or binary form, without prior written consent from the authors.
+
+See [`LICENSE`](LICENSE) for the full legal text (Red Daft OS Verbatim Distribution License v1.0).
+
+> **Note on prior versions:** Commits prior to `2026-08-26` (`732a244` and earlier) remain available under `GPL-3.0-or-later` as originally licensed. Only versions published on or after that date are under the new verbatim-only license. The authors do not retroactively revoke GPL rights already granted.
+
+For permission to distribute a modified version, open an issue or contact the authors via
+`https://github.com/wippsanrinthailand80-commits/red-daft-os`.

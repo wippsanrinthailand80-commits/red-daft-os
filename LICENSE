@@ -1,16 +1,109 @@
-Red Daft OS
-Copyright (C) 2026 The Red Daft OS contributors
+Red Daft OS — Verbatim Distribution License
+Version 1.0, August 2026
+Copyright (c) 2026 The Red Daft OS authors. All Rights Reserved.
 
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
+Preamble
+--------
+Red Daft OS is made source-visible to foster trust, auditability, and
+verbatim redistribution, while remaining protectively curated by its authors.
+The authors are highly protective of the project's integrity and do not permit
+the creation or distribution of modified versions or derivative works by third
+parties.
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU General Public License for more details.
+This License replaces the prior GNU GPL-3.0-or-later for all versions
+published on or after 2026-08-26. Versions published before that date remain
+available under GPL-3.0-or-later as originally licensed. Only the copyright
+holders may relicense their own contributions.
 
-You should have received a copy of the GNU General Public License along with
-this program. If not, see <https://www.gnu.org/licenses/>.
+1. Definitions
+   "Software" means the Source Code and the Binary artifacts (including the
+   ISO images, container images, and compiled binaries) of Red Daft OS made
+   available by the authors under this License.
+   "Source Code" means the preferred form for making modifications, including
+   build scripts, configuration files, and documentation.
+   "Verbatim Copy" means an exact, unmodified copy of the Software, in whole,
+   including all copyright, license, and attribution notices.
+   "Derivative Work" or "Modified Version" means any work based on or derived
+   from the Software, including but not limited to any modification, adaptation,
+   translation, porting, forking, or inclusion of a substantial portion of the
+   Software into another work.
 
-The full license text is available at: https://www.gnu.org/licenses/gpl-3.0.txt
+2. Grant of Rights
+   Subject to compliance with this License, the authors grant you a
+   worldwide, royalty-free, non-exclusive, non-transferable, non-sublicensable
+   license to:
+
+   a) Use the Software privately for any purpose, including the right to
+      make private modifications for your own personal, internal use, provided
+      such private modifications are NOT distributed to any third party;
+
+   b) Reproduce and Redistribute Verbatim Copies of the Software, in Source
+      Code and/or Binary form, with or without fee, and with or without
+      commercial advantage, including via download mirrors, peer-to-peer
+      networks, physical media, and container registries.
+
+3. Conditions for Verbatim Redistribution
+   You may exercise the rights in Section 2(b) only if you:
+
+   a) Retain intact all copyright notices, this License, the attribution
+      notice "Red Daft OS by The Red Daft OS authors", and the URL
+      https://github.com/wippsanrinthailand80-commits/red-daft-os ;
+
+   b) Distribute Verbatim Copies only in whole and without any modification,
+      addition, or deletion;
+
+   c) Do not apply any technological measure or legal term that would restrict
+      recipients' exercise of the rights granted herein to Verbatim Copies;
+
+   d) Make clear that the Software is provided without warranty (see Section 5).
+
+4. Restrictions — No Derivatives
+   a) You may NOT create, publish, or distribute any Derivative Work or
+      Modified Version of the Software, in Source or Binary form, to any
+      third party, whether for free or for commercial advantage. This
+      includes but is not limited to forking the repository, publishing
+      patches or pull requests that purport to be a modified version of the
+      OS, or incorporating the Software into another operating system.
+
+   b) You may NOT use the Software, in whole or in part, as the basis for
+      training, fine-tuning, or deriving any competing operating system
+      distribution that is then distributed under a different name.
+
+   c) Private, non-distributed modifications under Section 2(a) are the sole
+      exception to Section 4(a). If you distribute any such modification, you
+      are in violation of this License.
+
+5. No Trademark Grant
+   This License does not grant permission to use the trade names, trademarks,
+   service marks, or product names of the authors, including "Red Daft OS",
+   "Daft-Kernel", "daft-pkg", or "Daft AI-Kernel", except as required for
+   reasonable and customary attribution as described in Section 3(a).
+
+6. No Warranty and Limitation of Liability
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
+   IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Termination
+   Any violation of this License automatically terminates your rights under it.
+   Verbatim Copies already lawfully distributed by you prior to termination
+   remain valid for their recipients.
+
+8. Governing Interpretation
+   If any provision of this License is held unenforceable, the remaining
+   provisions continue in full effect. No waiver of any provision shall be
+   deemed a further or continuing waiver.
+
+For permission to create or distribute a Modified Version or Derivative Work
+(e.g., for an authorized downstream, research collaboration, or commercial
+fork), you must obtain prior written consent from the authors:
+https://github.com/wippsanrinthailand80-commits/red-daft-os
+
+Previous releases (commits prior to 2026-08-26, hash 732a244 and earlier) remain
+available under GPL-3.0-or-later at the recipient's option. This notice does not
+retroactively revoke rights already granted under GPL for those versions.
+
+Full text of the prior GPL-3.0 license: https://www.gnu.org/licenses/gpl-3.0.txt

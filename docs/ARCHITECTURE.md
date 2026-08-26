@@ -9,7 +9,10 @@ security-research capabilities.
 ## 1. Philosophy & Audience
 - Target: red-teamers (authorized engagements only), security engineers, AI devs,
   coder-first power users.
-- 100% FOSS. Sleek, fast, usable out-of-the-box.
+- **Source-available, protectively curated.** Verbatim redistribution (commercial and
+  non-commercial) is permitted; creation or distribution of modified versions /
+  derivative OS forks requires prior written consent (see `LICENSE`). Sleek, fast,
+  usable out-of-the-box, but the authors remain the sole curators of the OS lineage.
 - Legal/ethical baseline: all offensive capability is **transparent, labeled, and
   requires explicit authorization scope**. Nothing hides itself by default.
 

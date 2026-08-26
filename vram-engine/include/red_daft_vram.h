@@ -26,7 +26,9 @@
  * std::mutex + global mutex. C++20, -std=c++20.
  *
  * Author: Red Daft OS — Systems Performance Team
- * License: GPL-3.0-or-later (same as Red Daft OS)
+ * License: Red Daft OS Verbatim Distribution License v1.0 (see /LICENSE)
+ *          — verbatim redistribution allowed (even commercially),
+ *            private mods allowed but not distributable, no public forks
  */
 
 #include <cstddef>

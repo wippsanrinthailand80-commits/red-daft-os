@@ -155,4 +155,9 @@ Simulates a 3B model (28 layers) streaming weights through Pool 0 with double-bu
 
 ## License
 
-GPL-3.0-or-later — same as Red Daft OS.
+Red Daft OS Verbatim Distribution License v1.0 — see `/LICENSE`.
+
+Verbatim redistribution (even commercially) is permitted with attribution;
+private local modifications are allowed but must not be distributed;
+public forks / derivative OS distributions require prior written consent.
+Prior commits (≤ `732a244`) remain available under GPL-3.0-or-later.
