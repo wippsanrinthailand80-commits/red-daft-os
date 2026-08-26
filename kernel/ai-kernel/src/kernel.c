@@ -38,7 +38,10 @@ void kernel_main(u64 mbi){
     dbgmark('7');
     kprintf("[boot] running self-demo...\n");
     int ok=1;
-    for(u32 m=0;m<model_count();m++) ok &= model_verify(m);
+    for(u32 m=0;m<model_count();m++){
+        dbgmark('A'+(char)m);
+        ok &= model_verify(m);
+    }
     dbgmark('8');
     hmm_stats();
     u64 f = hmm_restore_to_pmm(128);

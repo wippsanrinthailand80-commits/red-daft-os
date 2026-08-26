@@ -13,7 +13,7 @@ static s32 op_xor(s32 w){ w^=w<<13; w^=w>>7; return w&0xFFFF; }
 static s32 op_inc(s32 w){ return w+1; }
 
 /* host buffers (the "main RAM" backing store): 4 models x 4MB in .bss */
-#define MODEL_PAGES 1024          /* 4 MB each */
+#define MODEL_PAGES 256           /* 1 MB each — keeps smoke fast; pool still oversubscribed */
 #define WORDS_PER_PAGE 1024       /* 4096 / sizeof(s32) */
 static s32 host_buf[4][MODEL_PAGES*WORDS_PER_PAGE];
 static const model_t defs[4] = {
@@ -32,7 +32,7 @@ void models_init(void){
         }
     for(int m=0;m<4;m++){
         int id=hmm_register_model(defs[m].name,host_buf[m],MODEL_PAGES);
-        kprintf("[model] %d '%s' %uKB\n",id,defs[m].name,MODEL_PAGES*4);
+        kprintf("[model] %d %s %uKB\n",id,defs[m].name,MODEL_PAGES*4);
     }
 }
 
