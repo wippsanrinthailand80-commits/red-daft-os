@@ -50,6 +50,7 @@ BLOCK_PATTERNS = [
     r"\b(obfuscate|pack|crypt).{0,30}(malware|ransomware|stealer).{0,30}\b(for\s+(deployment|delivery|evading\s+av|sandbox\s+evasion))\b",
     r"\b(target|hack|breach|compromise)\s+(a?\s*)?(specific\s+|named\s+|my\s+)?(former\s+|their\s+)?(company|person|people|hospital|school|government|bank|employer|workplace|ex[-_]?(girl)?friend|spouse|partner)s?\b",
     r"\bwithout\s+(permission|authorization)\b.{0,40}\b(hack|access|breach|exploit)",
+    r"\b(ready[- ]to[- ]run|working|functional)\b.{0,60}\b(ransomware|c2|c&c|beacon|botnet|stealer|ransomware\s+loader|malware\s+loader)",
 ]
 # Explicit authorization markers defeat ambiguity only for non-hard-block asks.
 ALLOW_CONTEXT = re.compile(
