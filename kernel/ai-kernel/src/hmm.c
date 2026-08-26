@@ -95,6 +95,7 @@ static int pool_grow(void){
 /* --------------------------- eviction ----------------------------- */
 static void page_writeback(hmm_page_t *p){
     if(!p->dirty) return;
+    dbgmark('W');
     kmemcpy((void*)(usize)p->host_addr,(void*)(usize)p->vram_addr,HMM_PAGE_SIZE);
     p->dirty=0; H.writebacks++;
 }
@@ -107,6 +108,7 @@ static int evict_one(void){
         v=H.lru_tail;
     }
     if(!v) return -1;
+    dbgmark('E');
     page_writeback(v);
     ht_remove(v);
     if(v==H.lru_head && v==H.lru_tail){ H.lru_head=H.lru_tail=NULL; }
@@ -137,7 +139,9 @@ static hmm_page_t *load_new(u32 m,u32 idx,int is_write){
     q->freq      = is_write?3:1;
     q->dirty     = is_write?1:0;
     q->resident  = 1;
+    dbgmark('M');
     kmemcpy((void*)(usize)va,(void*)(usize)q->host_addr,HMM_PAGE_SIZE);
+    dbgmark('m');
     H.bytes_migrated += HMM_PAGE_SIZE;
     ht_insert(q);
     lru_push_mru(q);
