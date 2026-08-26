@@ -16,6 +16,7 @@
 
 typedef struct hmm_page {
     struct hmm_page *lru_prev, *lru_next;  /* pool LRU list */
+    struct hmm_page *hash_next;            /* bucket chain (separate list!) */
     u64 host_addr;                          /* backing store in RAM */
     u64 vram_addr;                          /* current device location */
     u32 model_id, page_idx;

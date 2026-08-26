@@ -29,20 +29,20 @@ static hmm_page_t *ht_find(u32 m,u32 idx){
     hmm_page_t *p = H.htab[hash(m,idx)];
     while(p){
         if(p->model_id==m && p->page_idx==idx) return p;
-        p = (hmm_page_t*)p->lru_prev;          /* lru_prev doubles as chain */
+        p = p->hash_next;
     }
     return NULL;
 }
 static void ht_insert(hmm_page_t *p){
-    hmm_page_t **b = &H.htab[hash(p->model_id,p->page_idx)];
-    p->lru_prev  = *b;                          /* push front of chain */
-    *b           = p;
+    u32 h = hash(p->model_id,p->page_idx);
+    p->hash_next = H.htab[h];                   /* push front of bucket */
+    H.htab[h]    = p;
 }
 static void ht_remove(hmm_page_t *p){
     hmm_page_t **cur = &H.htab[hash(p->model_id,p->page_idx)];
     while(*cur){
-        if(*cur==p){ *cur=(hmm_page_t*)p->lru_prev; return; }
-        cur = (hmm_page_t**)&(*cur)->lru_prev;
+        if(*cur==p){ *cur=p->hash_next; p->hash_next=NULL; return; }
+        cur = &(*cur)->hash_next;
     }
 }
 
@@ -222,7 +222,7 @@ u64 hmm_restore_to_pmm(u32 target_pages){
                         again=1;
                         break;
                     }
-                    p=(hmm_page_t*)p->lru_prev;
+                    p=p->hash_next;
                 }
             }
         }
