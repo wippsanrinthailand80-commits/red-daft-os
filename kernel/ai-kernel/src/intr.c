@@ -5,7 +5,11 @@ static volatile u64 tick_count;
 static spinlock_t kbd_lock = SPIN_INIT;
 static char kbd_q[32]; static volatile u32 kbd_r, kbd_w;
 
-struct idt_entry { u16 lo, sel; u8 zero, flags; u16 hi; } __attribute__((packed));
+/* 64-bit interrupt gate: 16 BYTES (offset split low/middle/high).
+ * An 8-byte 32-bit-style table here makes vector N alias entries 2N/2N+1,
+ * producing non-canonical RIP transfers on the first IRQ. */
+struct idt_entry { u16 off_lo; u16 sel; u8 ist; u8 flags;
+                   u16 off_mid; u32 off_hi; u32 resv; } __attribute__((packed));
 struct idt_ptr  { u16 limit; u64 base; } __attribute__((packed));
 static struct idt_entry idt[256];
 static struct idt_ptr idtp;
@@ -14,11 +18,13 @@ extern void irq0_stub(void); extern void irq1_stub(void);
 extern void irq_default_stub(void);
 
 static void set_gate(int n, u64 handler){
-    idt[n].lo   = handler & 0xFFFF;
-    idt[n].sel  = 0x08;
-    idt[n].zero = 0;
-    idt[n].flags= 0x8E;               /* present, ring0, interrupt gate */
-    idt[n].hi   = handler >> 16;
+    idt[n].off_lo = handler & 0xFFFF;
+    idt[n].sel    = 0x08;
+    idt[n].ist    = 0;                /* no IST stack switch */
+    idt[n].flags  = 0x8E;             /* present, ring0, 64-bit int gate */
+    idt[n].off_mid= (handler >> 16) & 0xFFFF;
+    idt[n].off_hi = (u32)(handler >> 32);
+    idt[n].resv   = 0;
 }
 
 void irq_timer_c(void){
