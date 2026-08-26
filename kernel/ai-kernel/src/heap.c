@@ -10,7 +10,7 @@ static blk_t *head;
 void heap_init(void){
     u64 pa = pmm_donate_range(HEAP_PAGES);
     if(!pa) panic("heap: no arena");
-    head = (blk_t*)(u32)pa;
+    head = (blk_t*)(usize)pa;
     head->size = HEAP_PAGES*4096 - sizeof(blk_t);
     head->next = NULL; head->free = 1;
 }

@@ -42,7 +42,7 @@ static s64 run_model(u32 m){
     for(u32 i=0;i<defs[m].npages;i++){
         u64 va = hmm_fault(m,i);
         if(!va){ kprintf("[model] fault FAILED %u:%u\n",m,i); return -1; }
-        s32 *w = (s32*)(u32)va;
+        s32 *w = (s32*)(usize)va;
         acc += defs[m].op(w[0]);               /* touch first word of page */
     }
     return acc;

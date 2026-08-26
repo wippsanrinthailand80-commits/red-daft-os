@@ -15,12 +15,12 @@ static u64 arena_base, arena_end;       /* fallback region */
 typedef struct { u64 next; u8 order; } free_hdr_t;
 
 static inline void fl_push(int o, u64 pa){
-    free_hdr_t *h = (free_hdr_t*)(u32)pa;   /* identity-mapped low RAM */
+    free_hdr_t *h = (free_hdr_t*)(usize)pa;   /* identity-mapped low RAM */
     h->order = (u8)o; h->next = free_list[o]; free_list[o] = pa;
 }
 static inline u64 fl_pop(int o){
     u64 pa = free_list[o];
-    if(pa){ free_hdr_t *h=(free_hdr_t*)(u32)pa; free_list[o]=h->next; }
+    if(pa){ free_hdr_t *h=(free_hdr_t*)(usize)pa; free_list[o]=h->next; }
     return pa;
 }
 
@@ -61,10 +61,10 @@ void pmm_free(u64 pa){
         u64 *p = &free_list[o], found=0;
         while(*p){
             if(*p==buddy){ found=1; break; }
-            p = &((free_hdr_t*)(u32)*p)->next;
+            p = &((free_hdr_t*)(usize)*p)->next;
         }
         if(!found) break;
-        *p = ((free_hdr_t*)(u32)buddy)->next;   /* unlink buddy */
+        *p = ((free_hdr_t*)(usize)buddy)->next;   /* unlink buddy */
         if(buddy<pa) pa=buddy;
         o++;
     }
