@@ -29,15 +29,26 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 run: all
-	qemu-system-x86_64 -kernel $(BUILD)/ai-kernel.elf \
+	grub-mkrescue -o build/smoke.iso isoboot 2>/dev/null
+	qemu-system-x86_64 -cdrom build/smoke.iso \
 	    -m 256 -display none -serial stdio
 
-smoke: all
-	@timeout 20 qemu-system-x86_64 -kernel $(BUILD)/ai-kernel.elf \
-	    -m 256 -display none -serial stdio </dev/null | tee smoke.log
-	@grep -q "ALL MODELS MATCH" smoke.log && echo "SMOKE PASS"
+# Boots exactly like the Red Daft ISO dual-boot menu: GRUB -> multiboot2.
+smoke: all isoboot/boot/ai-kernel.elf isoboot/boot/grub/grub.cfg
+	-grub-mkrescue -o build/smoke.iso isoboot
+	timeout 60 qemu-system-x86_64 -cdrom build/smoke.iso \
+	    -m 256 -display none -no-reboot -serial file:smoke.log </dev/null || true
+	grep -q "ALL MODELS MATCH" smoke.log && echo "SMOKE PASS"
+
+isoboot/boot/ai-kernel.elf: $(BUILD)/ai-kernel.elf
+	mkdir -p isoboot/boot
+	cp $< $@
+
+isoboot/boot/grub/grub.cfg: Makefile
+	mkdir -p isoboot/boot/grub
+	printf 'set timeout=0\nmenuentry "aik" {\n  multiboot2 /boot/ai-kernel.elf\n  boot\n}\n' > $@
 
 clean:
-	rm -rf $(BUILD) smoke.log
+	rm -rf $(BUILD) smoke.log isoboot
 
 .PHONY: all run clean smoke

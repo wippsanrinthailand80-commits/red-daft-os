@@ -11,19 +11,6 @@ mb2_header:
     .long 8
 mb2_end:
 
-/* PVH ELF note: lets plain `qemu -kernel` load this 64-bit ELF.
- * We advertise _start as the 32-bit protected-mode physical entry
- * (paging off, flat segments, %ebx=start_info which we ignore).
- * Real firmware/GRUB keeps using the Multiboot2 header above. */
-.section .note.Xen, "a"
-.align 4
-.long 4                  /* namesz ("Xen\0") */
-.long 4                  /* descsz */
-.long 18                 /* type: XEN_ELFNOTE_PHYS32_ENTRY */
-.asciz "Xen"
-.align 4
-.long _start             /* desc: 32-bit physical entry point */
-
 .section .rodata
 .align 16
 gdt:
