@@ -53,21 +53,6 @@ static s64 run_model(u32 m){
 /* same computation straight over host RAM (ground truth) */
 static s64 ref_model(u32 m){
     s64 acc=0; const s32 *w=host_buf[m];
-    /* regenerate expected stream and locate any divergence */
-    u32 x=12345; int reported=0;
-    for(int mm=0;mm<=m;mm++){
-        u32 lim = (mm==m)? 0xFFFFFFFFu : MODEL_PAGES*WORDS_PER_PAGE;
-        for(u32 i=0;i<lim;i++){
-            x^=x<<13; x^=x>>17; x^=x<<5;
-            if(mm==m && i<MODEL_PAGES*WORDS_PER_PAGE){
-                s32 exp=(s32)(x|1);
-                if(w[i]!=exp && reported<3){
-                    kprintf("[ref] divergence idx=%u have=%d exp=%d\n",i,w[i],exp);
-                    reported++;
-                }
-            }
-        }
-    }
     for(u32 i=0;i<defs[m].npages;i++) acc += defs[m].op(w[i*WORDS_PER_PAGE]);
     return acc;
 }
