@@ -26,6 +26,7 @@ endif()
 add_library(red_daft_vram STATIC
   src/red_daft_vram.cpp
   src/red_daft_lora_manager.cpp
+  src/red_daft_nano_context.cpp
 )
 target_include_directories(red_daft_vram PUBLIC include)
 target_compile_options(red_daft_vram PRIVATE -O3 -Wall -Wextra)
@@ -72,6 +73,19 @@ if(BUILD_PYBIND)
 
   # Output name: red_daft_vram.*.so (importable as `import red_daft_vram`)
   set_target_properties(red_daft_vram_py PROPERTIES OUTPUT_NAME "red_daft_vram")
+
+  # Nano-Context Engine — separate Python module (cannot share one .so)
+  pybind11_add_module(red_daft_nano_context_py src/nano_pybind_wrapper.cpp)
+  target_link_libraries(red_daft_nano_context_py PRIVATE red_daft_vram)
+  target_include_directories(red_daft_nano_context_py PRIVATE include)
+
+  if(USE_ROCM)
+    target_link_libraries(red_daft_nano_context_py PRIVATE hip::host hip::device)
+  elseif(CUDAToolkit_FOUND)
+    target_link_libraries(red_daft_nano_context_py PRIVATE CUDA::cudart)
+  endif()
+
+  set_target_properties(red_daft_nano_context_py PROPERTIES OUTPUT_NAME "red_daft_nano_context")
 endif()
 
 # ── Native test binaries (CPU fallback, no Python) ───────────────────
@@ -81,9 +95,13 @@ target_link_libraries(vram_test PRIVATE red_daft_vram)
 add_executable(lora_test tests/test_lora.cpp)
 target_link_libraries(lora_test PRIVATE red_daft_vram)
 
+add_executable(nano_test tests/test_nano.cpp)
+target_link_libraries(nano_test PRIVATE red_daft_vram)
+
 # ── Install ────────────────────────────────────────────────────────────
 install(TARGETS red_daft_vram DESTINATION lib)
-install(FILES include/red_daft_vram.h include/red_daft_lora_manager.h DESTINATION include)
+install(FILES include/red_daft_vram.h include/red_daft_lora_manager.h include/red_daft_nano_context.h DESTINATION include)
 if(BUILD_PYBIND)
   install(TARGETS red_daft_vram_py DESTINATION .)
+  install(TARGETS red_daft_nano_context_py DESTINATION .)
 endif()

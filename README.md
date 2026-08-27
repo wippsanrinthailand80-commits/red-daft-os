@@ -25,6 +25,9 @@ modified versions / derivative OS forks requires prior written consent.
 - **LoRa Brain Engine** — Dynamic LoRa adapter hot-swap: 4 LoRa pools (SystemControl,
   ReasoningLogic, CodingSyntax, ConversationLang), async host↔VRAM transfer, LRU eviction,
   SGMV-style weight patching (`B @ A @ input`), zero-copy on active adapters.
+- **Nano-Context Engine** — Ephemeral high-density context manager: base weights stay
+  strictly FP16 in Pool 0 while all Input/Output context + KV Cache route to spawned
+  Nano-Pools with FP16→INT4/INT2 KV quantization and a < 50 MB token stream ring.
 - **Daft-Kernel** — hardened config (`build/configs/kernel-config.x86_64`):
   KSPP-aligned hardening + full GPU enablement + live-boot essentials.
 - **daft-pkg** — native `.daft` package manager (signed tar.zst + manifest).
@@ -75,8 +78,7 @@ modified versions / derivative OS forks requires prior written consent.
 | Kernel + modules | ~0.5 GB | 7.1.10 hardened, GPU drivers baked in |
 | AI-Kernel ELF + GRUB entry | ~0.002 GB | `/boot/ai-kernel.elf` |
 | Ollama + models | ~5–20 GB | 3B (2 GB) up to 32B (19 GB) |
-| VRAM Engine (source + `.so`) | ~0.01 GB | C++20, ~4000 lines total |
-| LoRa Engine (source + `.so`) | ~0.005 GB | C++20, ~2000 lines total |
+| Virtual Memory Engine (VRAM + LoRa + Nano-Context) | ~0.015 GB | C++20, ~5000 lines total |
 | Security tooling | ~2 GB | nmap, metasploit-framework, scapy, etc. |
 | daft-pkg + specs | ~0.5 GB | Package manager, GPU specs, kernel configs |
 | Plymouth + branding | ~0.05 GB | Splash, wallpaper, MOTD, ID card assets |
@@ -241,7 +243,7 @@ streams and double-buffering.
 
 **Location:** `vram-engine/` — header `include/red_daft_vram.h`, impl `src/red_daft_vram.cpp`,
 Python binding `src/pybind_wrapper.cpp` (`pybind11` + optional `torch/extension.h`).
-**~4,000 lines** of C++20 across both VRAM and LoRa engines.
+**~5,000 lines** of C++20 across the VRAM, LoRa, and Nano-Context engines.
 
 ### 10 Memory Pools
 
@@ -399,6 +401,55 @@ python -c "import red_daft_lora; red_daft_lora.initialize(); red_daft_lora.print
 
 See `vram-engine/tests/test_lora.cpp`, `docs/ARCHITECTURE.md §3.3`.
 
+## Nano-Context Engine — Ephemeral High-Density Context (Linux, C++20 + CUDA/HIP)
+
+Keeps **Base Model Weights strictly in FP16 in VRAM Pool 0** and routes **all**
+Input/Output Context Window + KV Cache allocations to dynamically spawned,
+high-density **Nano-Pools**. Nano-Pools spawn on request start and recycle on
+generation completion, with a hot free-list for low-latency re-spawn.
+
+**Location:** `vram-engine/` — header `include/red_daft_nano_context.h`, impl
+`src/red_daft_nano_context.cpp`, Python binding `src/nano_pybind_wrapper.cpp`.
+
+### Core guarantees
+
+- **Weights never move.** The Nano-Context Engine has no reference to VRAM Pool 0;
+  it works only on its own ephemeral Nano-Pools.
+- **FP16 → INT4 / INT2 KV quantization.** KV cache entries are per-channel
+  quantized (scale + zero-point) inside the Nano-Pool buffer: up to **4–8× density**
+  vs raw FP16. Base weights stay untouched at full FP16 precision.
+- **Ephemeral Token Stream Ring** handles continuous input/output token traffic
+  with a configurable footprint, default **< 50 MB per active stream**.
+- **Spawn-on-request / recycle-on-completion** with a warm `free_list` (default 8
+  recycled pools) to avoid allocator churn across requests.
+
+### Python API
+
+```python
+import red_daft_nano_context as nano
+
+cfg = nano.NanoContextConfig(kv_layers=32, kv_heads=8, head_dim=128,
+                             max_tokens=4096, stream_capacity=24 << 20)
+nano.nano_initialize(cfg)
+
+rid = nano.request_begin()                     # spawn a Nano-Pool
+key = [0.5] * 128;  val = [0.25] * 128         # flat lists, seq_tokens*head_dim
+nano.kv_store(rid, layer=0, head=0, key=key, value=val, seq_tokens=1)
+nano.stream_push(rid, [1.0, 2.0, 3.0])         # token stream
+toks = nano.stream_pop(rid, 3)
+print(nano.pool_stats(rid))                    # quant + stream stats
+nano.request_end(rid)                          # recycle the Nano-Pool
+```
+
+### Native test
+
+```bash
+g++ -std=c++20 -Wall -Wextra -O3 -I vram-engine/include \
+    vram-engine/src/red_daft_nano_context.cpp vram-engine/tests/test_nano.cpp \
+    -o /tmp/nano_test
+/tmp/nano_test      # KV INT4/INT2 round-trip, token stream, pool recycle → ALL PASS
+```
+
 ## Local AI + daft-ai-guard v2
 
 Default stack: Ollama serving `qwen2.5-coder:3b` behind the guard proxy
@@ -454,18 +505,22 @@ packages/       daft-pkg, deb-adapter, daft specs, gpu/ (daft-gpu + scorer), daf
 ai/             Modelfile, ollama-setup, daft-ai-guard v2 (+proxy, service)
 shell/          daft-shell (in-RAM C/Python execution)
 kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools: HMM v3)
-vram-engine/    C++20 tiered manager (~4000 lines total)
-                  ├── include/red_daft_vram.h          10-pool VRAM engine header
-                  ├── include/red_daft_lora_manager.h   LoRa Brain Engine header
-                  ├── src/red_daft_vram.cpp             VRAM engine impl (10 pools, HAL)
-                  ├── src/red_daft_lora_manager.cpp     LoRa engine impl (4 pools, SGMV, LRU)
-                  ├── src/pybind_wrapper.cpp            pybind11 VRAM module
-                  ├── src/lora_pybind_wrapper.cpp       pybind11 LoRa module
-                  ├── tests/test_vram.cpp               10-pool smoke (PASS)
-                  ├── tests/test_lora.cpp               9 LoRa tests (ALL PASS)
-                  ├── benchmarks/stress_3b.py           3B Kaggle/Linux stress
-                  ├── CMakeLists.txt                    CMake (CUDA/ROCm/CPU)
-                  └── setup.py                          pip install (auto-detect backend)
+vram-engine/    C++20 tiered manager (+ LoRa + Nano-Context, ~5000 lines)
+                  ├── include/red_daft_vram.h            10-pool VRAM engine header
+                  ├── include/red_daft_lora_manager.h     LoRa Brain Engine header
+                  ├── include/red_daft_nano_context.h     Nano-Context Engine header
+                  ├── src/red_daft_vram.cpp               VRAM engine impl (10 pools, HAL)
+                  ├── src/red_daft_lora_manager.cpp       LoRa engine impl (4 pools, SGMV, LRU)
+                  ├── src/red_daft_nano_context.cpp       Nano-Context impl (INT4/INT2 KV, stream)
+                  ├── src/pybind_wrapper.cpp              pybind11 VRAM module
+                  ├── src/lora_pybind_wrapper.cpp         pybind11 LoRa module
+                  ├── src/nano_pybind_wrapper.cpp         pybind11 Nano-Context module
+                  ├── tests/test_vram.cpp                 10-pool smoke (PASS)
+                  ├── tests/test_lora.cpp                 9 LoRa tests (ALL PASS)
+                  ├── tests/test_nano.cpp                 Nano tests (ALL PASS)
+                  ├── benchmarks/stress_3b.py             3B Kaggle/Linux stress
+                  ├── CMakeLists.txt                      CMake (CUDA/ROCm/CPU)
+                  └── setup.py                            pip install (auto-detect backend)
 ux/             branding, MOTD, first-run ID card, installer
 docs/           architecture (ARCHITECTURE.md)
 .github/        ci workflows (iso, build, gpu-compat, ai-kernel, amd-rocm, nvidia-cuda)

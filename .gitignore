@@ -8,3 +8,8 @@ kernel/daft-defmon/Module.symvers
 kernel/daft-defmon/modules.order
 *.tmp
 build/ubuntu-archive-keyring.*
+# Python build artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+*.so

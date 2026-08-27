@@ -146,6 +146,40 @@ Simulates a 3B model (28 layers) streaming weights through Pool 0 with double-bu
 
 ---
 
+## Nano-Context Engine
+
+Separate module `red_daft_nano_context` — ephemeral, high-density context manager.
+Base Model Weights stay **strictly FP16 in VRAM Pool 0**; all Input/Output Context
+Window + KV Cache allocations route to dynamically spawned **Nano-Pools** with
+FP16 → INT4/INT2 KV quantization and an ephemeral token stream ring (< 50 MB/stream).
+Nano-Pools spawn on request start and recycle on generation completion.
+
+```python
+import red_daft_nano_context as nano
+
+cfg = nano.NanoContextConfig(kv_layers=32, kv_heads=8, head_dim=128,
+                             max_tokens=4096, stream_capacity=24 << 20)
+nano.nano_initialize(cfg)
+
+rid = nano.request_begin()                  # spawn a Nano-Pool
+key = [0.5] * 128;  val = [0.25] * 128      # flat lists seq_tokens*head_dim
+nano.kv_store(rid, layer=0, head=0, key=key, value=val, seq_tokens=1)
+nano.stream_push(rid, [1.0, 2.0, 3.0])
+toks = nano.stream_pop(rid, 3)
+print(nano.pool_stats(rid))                 # quant + stream stats
+nano.request_end(rid)                       # recycle back to free-list
+```
+
+Native tests (no Python/GPU needed):
+
+```bash
+c++ -std=c++20 -Wall -Wextra -O3 -I include \
+    src/red_daft_nano_context.cpp tests/test_nano.cpp -o /tmp/nano_test
+/tmp/nano_test     # KV INT4/INT2 round-trip, token stream, pool recycle → ALL PASS
+```
+
+---
+
 ## Integration with Red Daft OS
 
 * **Bare-metal AI-Kernel** (`kernel/ai-kernel/`): the kernel's HMM already exposes 10 pools (0..9) via `hmm_register_model_p(..., pool)` and `kernel pool` CLI. The VRAM engine is the **Linux counterpart** for CUDA/HIP.
