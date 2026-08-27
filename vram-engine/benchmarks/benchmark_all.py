@@ -143,10 +143,16 @@ def run_vram_suite(rdv, budget_mib, iters, size_kib):
     for p in [0, 1, 9]:
         handles = []
         t0 = _ns()
-        for i in range(10000):
-            h = rdv.allocate_handle(p, 64<<10, tag=f"fill_{i}")
-            if not h: break
-            handles.append(h)
+        try:
+            for i in range(10000):
+                h = rdv.allocate_handle(p, 64<<10, tag=f"fill_{i}")
+                if not h:
+                    break
+                handles.append(h)
+        except Exception as e:
+            # ARENA pool raises on OOM; treat as pool-full
+            print(f"  {POOL_NAMES[p]}: stopped at cap ({e})")
+            pass
         ns = _ns() - t0
         mib = len(handles) * 64 / 1024
         for h in handles: rdv.deallocate(h)

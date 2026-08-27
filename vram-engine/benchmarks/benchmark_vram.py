@@ -195,11 +195,21 @@ def run_vram_benchmarks(rdv, budget_mib, iters, size_kib):
     # ── 5. Pool fill (capacity test) ─────────────────────────────────
     print(f"\n[5/7] Pool fill capacity (64 KiB chunks)")
     for p in [0, 1, 9]:
-        chunks, total, ns = bench_pool_fill(rdv, p, 64<<10, 10000)
-        mib = total / 1024 / 1024
+        handles = []
+        t0 = _ns()
+        try:
+            for i in range(10000):
+                h = rdv.allocate_handle(p, 64<<10, tag=f"fill_{i}")
+                if not h:
+                    break
+                handles.append(h)
+        except Exception as e:
+            print(f"  {POOL_NAMES[p]}: stopped at cap ({e})")
+        ns = _ns() - t0
+        mib = len(handles) * 64 / 1024
         rate = mib / (_ms(ns) / 1000) if ns > 0 else 0
-        print(f"  {POOL_NAMES[p]:<22s} {chunks:>6d} chunks  {mib:>8.1f} MiB  {fmt_us(ns):>8s}  {rate:>8.0f} MiB/s")
-        results[f"fill_{POOL_NAMES[p]}"] = {"chunks": chunks, "total_mib": mib, "time_ns": ns, "rate_mibs": rate}
+        print(f"  {POOL_NAMES[p]:<22s} {len(handles):>6d} chunks  {mib:>8.1f} MiB  {fmt_us(ns):>8s}  {rate:>8.0f} MiB/s")
+        results[f"fill_{POOL_NAMES[p]}"] = {"chunks": len(handles), "total_mib": mib, "time_ns": ns, "rate_mibs": rate}
 
     # ── 6. Full 10-pool sweep ────────────────────────────────────────
     print(f"\n[6/7] 10-pool sweep ({size_kib} KiB/pool, {iters} iters)")
