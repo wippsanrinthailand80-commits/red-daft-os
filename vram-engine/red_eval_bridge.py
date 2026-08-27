@@ -93,23 +93,43 @@ def _candidates() -> List[str]:
 
 def _load() -> None:
     global _MOD, _REASON
+    here = None
+    try:
+        here = str(Path(__file__).resolve().parent)
+    except Exception:  # noqa: BLE001
+        here = os.getcwd()
+
+    # 1) Prefer the normal CPython extension loader: put the build dir on
+    #    sys.path and do a plain `import red_eval`. This lets CPython resolve
+    #    the ABI-tagged suffix (.cpython-3xx-...so) and PyInit_red_eval with
+    #    the least room for error.
+    reason = "no extension"
+    if here and here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        _MOD = importlib.import_module("red_eval")
+        return
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+
+    # 2) Explicit spec-based load as a fallback.
     for cand in _candidates():
         try:
-            import importlib.util
             spec = importlib.util.spec_from_file_location("red_eval", cand)
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 _MOD = mod
                 return
-        except Exception:  # noqa: BLE001 - try next candidate
-            continue
+        except Exception as exc:  # noqa: BLE001 - try next candidate
+            reason = f"{type(exc).__name__}: {exc}"
+
     _REASON = (
-        "compiled `red_eval` extension not found. Build it with:\n"
+        "compiled `red_eval` extension not found/loadable (%s). Build it with:\n"
         "  pip install -e vram-engine/\n"
-        "or (CPU-only, no CUDA needed) build via CMake. "
+        "or build via CMake (CPU-only, no CUDA needed). "
         "Falling back to the pure-Python diagnostic emulator below."
-    )
+    ) % reason
 
 
 def _ext() -> Any:
