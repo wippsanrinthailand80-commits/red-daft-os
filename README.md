@@ -14,51 +14,91 @@ modified versions / derivative OS forks requires prior written consent.
 > systems, labs, written engagements).
 
 ## Highlights
+
 - **Dual kernel** — hardened Linux 7.1.10 daily driver + **Red Daft AI-Kernel**
-  v0.2 "Demo Box", a from-scratch bare-metal x86_64 kernel (see below).
-- **HMM v3 — 10 pools** — Kernel 2 exposes 10 elastic VRAM pools
-  (`weights/kv/scratch/activ/embed/attn/worksp/cache/tensor/generic`) with
-  LRU/FIFO/arena policies, weighted quotas, and `kernel pool` CLI.
-- **VRAM Engine** — Linux C++20 tiered manager (VRAM + DDR pinned) for 3B/7B/32B
-  LLMs: 10 pools, async `cudaMemcpyAsync`/`hipMemcpyAsync` double-buffering,
-  HAL (CUDA/ROCm/CPU), emergency borrowing + anti-starvation, `pybind11` + Torch.
+  v0.2 "Demo Box", a from-scratch bare-metal x86_64 kernel.
+- **HMM v3 — 10 pools** — AI-Kernel exposes 10 elastic VRAM pools with LRU/FIFO/arena
+  policies, weighted quotas, and `kernel pool` CLI.
+- **VRAM Engine** — Linux C++20 tiered manager (VRAM + DDR pinned) for 3B/7B/32B LLMs:
+  10 pools, async `cudaMemcpyAsync`/`hipMemcpyAsync` double-buffering, HAL (CUDA/ROCm/CPU),
+  emergency borrowing + anti-starvation, `pybind11` + PyTorch integration.
+- **LoRa Brain Engine** — Dynamic LoRa adapter hot-swap: 4 LoRa pools (SystemControl,
+  ReasoningLogic, CodingSyntax, ConversationLang), async host↔VRAM transfer, LRU eviction,
+  SGMV-style weight patching (`B @ A @ input`), zero-copy on active adapters.
 - **Daft-Kernel** — hardened config (`build/configs/kernel-config.x86_64`):
   KSPP-aligned hardening + full GPU enablement + live-boot essentials.
 - **daft-pkg** — native `.daft` package manager (signed tar.zst + manifest).
 - **deb-adapter** — install Ubuntu `.deb` with `.so` deps resolved.
 - **Local AI** — Ollama + `qwen2.5-coder:3b` default; `ollama-setup scale 7b|14b|32b`.
 - **daft-ai-guard v2** — context-aware filter: ALLOW / BOOST / BLOCK routing
-  with engagement-scope gating and a local audit log. Not a bypass — the
-  opposite: it makes the filter smarter, not weaker.
+  with engagement-scope gating and a local audit log.
 - **daft-shell** — in-RAM C/Python execution (TCC).
 - **GPU-ready everywhere** — drivers compiled in even without hardware,
   software fallbacks (llvmpipe/lavapipe/PoCL), `daft-gpu`/`daft-compat`
-  tooling with a 100-point capability score (see below).
-- **AMD ROCm support** — `.daft` specs for the full ROCm stack.
+  tooling with a 100-point capability score.
+- **AMD ROCm support** — full ROCm stack: `amdgpu-dkms`, `rocm-runtime`, `rocblas`,
+  `miopen`, `rocm-smi`, `rocm-dev`, `pytorch-rocm`.
 - **NVIDIA CUDA support** — CUDA 12.9 track (Blackwell-ready), cuDNN, TensorRT.
 - **Branding** — crimson `#FF3366` / matte-black theme, ASCII logo, MOTD,
   Plymouth splash.
+- **CI** — 6 workflows on every push: ISO, build+tests, GPU compat, AI-Kernel smoke,
+  AMD ROCm repo validation, NVIDIA CUDA repo validation.
+- **Container** — Docker image with full stack at `/opt/daft/vram-engine`.
 
 ## System requirements
 
-| | Minimum | Recommended | AI / ML |
-|---|---|---|---|
-| **RAM** | 2 GB | 8 GB | 16 GB+ |
-| **Storage** | 20 GB | 50 GB | 100 GB+ |
-| **CPU** | x86_64, 2 cores | x86_64, 4 cores+ | x86_64, 8 cores+ |
+| Tier | RAM | Storage | CPU | What runs |
+|---|---|---|---|---|
+| **Minimum** | 2 GB | 20 GB | x86_64, 2 cores | XFCE desktop + daft-shell + security tooling + daft-pkg |
+| **Recommended** | 8 GB | 50 GB | x86_64, 4 cores+ | + Ollama `qwen2.5-coder:3b` + VRAM Engine + LoRa Brain Engine |
+| **AI / ML** | 16–32 GB | 100–200 GB | x86_64, 8 cores+ | + 7B–32B models (`ollama-setup scale`) + GPU (CUDA/ROCm) + 4 LoRa adapters |
+| **Kaggle / CI** | 8 GB | 30 GB | Any | CPU fallback (no GPU needed — engine + benchmarks still run) |
 
-- **Minimum** runs XFCE desktop + daft-shell + security tooling.
-- **Recommended** adds Ollama + `qwen2.5-coder:3b` local model.
-- **AI / ML** accommodates larger models (7B–32B via `ollama-setup scale`) and
-  GPU-accelerated workloads (AMD ROCm / NVIDIA CUDA).
-- GPU drivers optional at install: `amdgpu-dkms` (AMD), nvidia-open 570+
-  (NVIDIA). The kernel already contains everything both need.
+### RAM breakdown (Recommended tier, 8 GB)
+
+| Component | RAM | Notes |
+|---|---|---|
+| XFCE desktop + system | ~1.5 GB | systemd, LightDM, mesa |
+| Ollama (`qwen2.5-coder:3b`) | ~2.5 GB | Inference working set |
+| VRAM Engine overhead | ~0.1 GB | C++ singleton, 10 pool descriptors |
+| LoRa Brain Engine | ~0.2 GB | 4 LoRa adapters (10–50 MB each) in DDR pinned |
+| daft-ai-guard v2 proxy | ~0.05 GB | Python reverse proxy on `:11435` |
+| daft-defmon LKM | ~0.01 GB | Defensive kernel monitor |
+| daft-shell (TCC) | ~0.05 GB | In-RAM C/Python compiler |
+| Buffer/cache | ~3.6 GB | Available for VMs, workloads, compile |
+
+### Storage breakdown (Recommended tier, 50 GB)
+
+| Component | Size | Notes |
+|---|---|---|
+| Base OS (XFCE + systemd) | ~8 GB | bookworm rootfs |
+| Kernel + modules | ~0.5 GB | 7.1.10 hardened, GPU drivers baked in |
+| AI-Kernel ELF + GRUB entry | ~0.002 GB | `/boot/ai-kernel.elf` |
+| Ollama + models | ~5–20 GB | 3B (2 GB) up to 32B (19 GB) |
+| VRAM Engine (source + `.so`) | ~0.01 GB | C++20, ~4000 lines total |
+| LoRa Engine (source + `.so`) | ~0.005 GB | C++20, ~2000 lines total |
+| Security tooling | ~2 GB | nmap, metasploit-framework, scapy, etc. |
+| daft-pkg + specs | ~0.5 GB | Package manager, GPU specs, kernel configs |
+| Plymouth + branding | ~0.05 GB | Splash, wallpaper, MOTD, ID card assets |
+| `/opt/daft/` full stack | ~0.02 GB | All engines + AI + shell + packages |
+
+### Storage breakdown (AI/ML tier, 100–200 GB)
+
+| Component | Size | Notes |
+|---|---|---|
+| All of Recommended | ~36 GB | See above |
+| 7B–14B models | +10–30 GB | `ollama-setup scale 7b|14b` |
+| 32B model | +19 GB | `ollama-setup scale 32b` |
+| LoRa adapters (4×) | +0.2 GB | 10–50 MB each, hot-swappable |
+| CUDA/ROCm toolkit | +5–15 GB | Driver + runtime + dev headers |
+| VRAM Engine VRAM budget | (GPU) | 2 GiB default, auto-scales to 80% free VRAM |
 
 ## Build
+
 ### ISO (full OS)
 ```bash
-sudo bash build/build-iso.sh          # full pipeline -> iso/*.iso
-KEEP_WORK=1 sudo -E bash build/build-iso.sh   # incremental (reuses built kernel)
+sudo bash build/build-iso.sh                       # full pipeline → iso/*.iso
+KEEP_WORK=1 sudo -E bash build/build-iso.sh        # incremental (reuses built kernel)
 ```
 Requires `mmdebstrap`, `squashfs-tools`, `xorriso`, `grub-efi-amd64-bin`,
 `grub-pc-bin`, `mtools`, kernel build deps, and root. Failed builds keep their
@@ -71,25 +111,39 @@ installer (`reddaft-install`).
 
 ### AI-Kernel (bare-metal, 10 pools)
 ```bash
-make -C kernel/ai-kernel              # → build/ai-kernel.elf
+make -C kernel/ai-kernel              # → build/ai-kernel.elf (~2 MB)
 make -C kernel/ai-kernel smoke        # QEMU headless: 7/7 MATCH, 10-pool, elasticity
 ```
 
-### VRAM Engine (Linux, C++20, 10 pools)
+### VRAM Engine (Linux, C++20, 10 pools + LoRa Brain Engine)
 ```bash
-cmake -B /tmp/vram-build -S vram-engine -DUSE_CUDA=OFF && cmake --build /tmp/vram-build -j  # CPU fallback
+# CPU fallback (CI / Kaggle / no GPU)
+cmake -B /tmp/vram-build -S vram-engine -DUSE_CUDA=OFF && cmake --build /tmp/vram-build -j
 /tmp/vram-build/vram_test             # 10×1 MiB, offload/prefetch, borrow → PASS
-pip install -e ./vram-engine          # pybind11 + optional torch
-python vram-engine/benchmarks/stress_3b.py --iters 3  # 3B stress, 28 layers
+/tmp/vram-build/lora_test             # 9 LoRa tests → ALL PASS
+
+# NVIDIA CUDA
+cmake -B /tmp/vram-build -S vram-engine -DUSE_CUDA=ON && cmake --build /tmp/vram-build -j
+
+# AMD ROCm
+cmake -B /tmp/vram-build -S vram-engine -DUSE_ROCM=ON && cmake --build /tmp/vram-build -j
+
+# Python (pybind11 + optional torch)
+pip install -e ./vram-engine              # CPU fallback
+RD_USE_CUDA=1 pip install -e ./vram-engine
+RD_USE_ROCM=1 pip install -e ./vram-engine
+
+python vram-engine/benchmarks/stress_3b.py --iters 3    # 3B stress, 28 layers
+python vram-engine/benchmarks/stress_3b.py --torch       # + PyTorch integration
 ```
 
-## Container (runs anywhere, no boot required)
+### Container (runs anywhere, no boot required)
 ```bash
 docker build -t red-daft-os .
-docker run -it --rm red-daft-os          # ID card + daft-shell + vram-engine at /opt/daft/vram-engine
+docker run -it --rm red-daft-os          # ID card + daft-shell + VRAM + LoRa at /opt/daft/vram-engine
 ```
 
-## Package manager
+### Package manager
 ```bash
 daft-pkg install ./foo.daft       # install a local .daft archive
 daft-deb add <pkg.deb>            # install an Ubuntu .deb (deps resolved)
@@ -144,19 +198,19 @@ kernel (`kernel/ai-kernel/`) that proves the Heterogeneous Memory Manager:
 
 - Multiboot2 → long mode → identity paging; buddy PMM; kernel heap;
   spinlocks; PIT/PS2/serial; PCI enumeration.
- - **HMM v3 (10 pools)**: elastic VRAM pools *donated from* and *restored to*
-   the physical allocator on demand. Kernel 2 exposes **10 pools**
-   (`weights/kv/scratch/activ/embed/attn/worksp/cache/tensor/generic`)
-   with per-pool policies: LRU+freq+prefetch (weights), arena never-evict (KV),
-   FIFO (scratch/worksp), generic LRU (others); dirty writeback + per-migration
-   integrity checks. Weighted quotas (30%/20%/10%/40% over 7) with run-by-run donation.
-  - Streams models through ≤2 MB of pool with automatic CPU-reference
-    verification of every result (CI-proven: ~2055 faults, ~1895 evictions, 7/7 MATCH
-    incl. training writeback, plus KV/scratch/10-pool exercises).
-  - Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`
-    plus **`kernel` switcher** — `kernel status|list|switch|reboot|pool|hmm`,
-    `reboot`, `pool`, `uname` (pairs with Linux-side `daft-kernel`). `kernel pool`
-    lists 10 pools; `pool <id>` inspects.
+- **HMM v3 (10 pools)**: elastic VRAM pools *donated from* and *restored to*
+  the physical allocator on demand. 10 pools
+  (`weights/kv/scratch/activ/embed/attn/worksp/cache/tensor/generic`)
+  with per-pool policies: LRU+freq+prefetch (weights), arena never-evict (KV),
+  FIFO (scratch/worksp), generic LRU (others); dirty writeback + per-migration
+  integrity checks. Weighted quotas (30%/20%/10%/40% over 7) with run-by-run donation.
+- Streams models through ≤2 MB of pool with automatic CPU-reference
+  verification of every result (CI-proven: ~2055 faults, ~1895 evictions, 7/7 MATCH
+  incl. training writeback, plus KV/scratch/10-pool exercises).
+- Interactive serial **Demo Box** shell: `help ls verify stats restore pci mem uptime demo`
+  plus **`kernel` switcher** — `kernel status|list|switch|reboot|pool|hmm`,
+  `reboot`, `pool`, `uname` (pairs with Linux-side `daft-kernel`). `kernel pool`
+  lists 10 pools; `pool <id>` inspects.
 
 ```bash
 make -C kernel/ai-kernel smoke   # builds ELF + boots it under QEMU headlessly
@@ -187,11 +241,12 @@ streams and double-buffering.
 
 **Location:** `vram-engine/` — header `include/red_daft_vram.h`, impl `src/red_daft_vram.cpp`,
 Python binding `src/pybind_wrapper.cpp` (`pybind11` + optional `torch/extension.h`).
+**~4,000 lines** of C++20 across both VRAM and LoRa engines.
 
 ### 10 Memory Pools
 
-| Pool | Name                     | Policy      | Quota (2 GiB budget) | Role |
-|------|--------------------------|-------------|----------------------|------|
+| Pool | Name | Policy | Quota (2 GiB budget) | Role |
+|---|---|---|---|---|
 | 0 | ModelWeights | LRU_FREQ | 35% 716 MiB | Read-only static weights |
 | 1 | KvCache | ARENA | 25% 512 MiB | Dynamic paged KV, never auto-evict |
 | 2 | ActivationsTensors | FIFO | 15% 307 MiB | High-frequency cyclic |
@@ -224,7 +279,8 @@ Macro-switchable at compile time, single header:
 # no flag       # CPU fallback → malloc + memcpy simulation (CI/Kaggle CPU)
 ```
 
-All device/host alloc, free, memcpy, streams go through `hal_*` wrappers.
+All device/host alloc, free, memcpy, streams go through `hal_*` wrappers. Auto-detection
+in `setup.py` checks `/opt/rocm/` (AMD) then `/usr/local/cuda/` (NVIDIA) if no env var set.
 
 ### Dynamic Borrowing & Anti-Starvation
 
@@ -259,13 +315,89 @@ t = rdv.allocate_torch(pool=0, shape=[3072,3072], dtype="bf16")
 # 3B stress — streams 28 layers through 10 pools
 res = rdv.stress_3b_benchmark(layers=28, hidden=3072, seq_len=2048, iterations=3, verbose=True)
 print(res.report)  # peak VRAM, borrows, offloads, PASS/FAIL
-
-# Kaggle one-liner
-# !git clone https://github.com/wippsanrinthailand80-commits/red-daft-os.git
-# !cd red-daft-os/vram-engine && pip install pybind11 && pip install -e . && python benchmarks/stress_3b.py --torch
 ```
 
 See `vram-engine/README.md`, `CMakeLists.txt`, `benchmarks/stress_3b.py`, `tests/test_vram.cpp`.
+
+## LoRa Brain Engine — Dynamic Adapter Hot-Swap (Linux, C++20 + CUDA/HIP)
+
+Modular LoRa adapter hot-swap engine for multi-LoRa serving on a shared base model (1B–3B).
+Manages microsecond-level swapping of LoRa adapters (10–50 MB each) between System DDR4/DDR5
+(pinned host memory) and GPU VRAM across the 10 OS Memory Pools.
+
+**Location:** `vram-engine/` — header `include/red_daft_lora_manager.h`, impl `src/red_daft_lora_manager.cpp`,
+Python binding `src/lora_pybind_wrapper.cpp`. **~2,000 lines** of C++20.
+
+### 4 LoRa Pools
+
+| LoRa Pool | VRAM Pool | Name | Role |
+|---|---|---|---|
+| 1 | 0–4 region | SystemControl | OS Control & System Agent LoRa |
+| 2 | 0–4 region | ReasoningLogic | Reasoning & Logic LoRa |
+| 3 | 0–4 region | CodingSyntax | Coding & Syntax LoRa |
+| 4 | 0–4 region | ConversationLang | Conversation & Language LoRa |
+
+### Features
+
+- **Zero-copy async hot-swapping:** Inactive LoRa weights live in Host Pinned Memory
+  (`cudaMallocHost` / `hipHostMalloc`). Async loader uses `cudaMemcpyAsync` / `hipMemcpyAsync`
+  on per-adapter CUDA/HIP Streams to pre-fetch the required adapter *before* the compute layer
+  executes, avoiding GPU stalls. CPU fallback uses `std::memcpy` for CI/Kaggle.
+- **SGMV-style weight patching:** `apply_lora_weights()` computes
+  `output = base_output + B @ A @ input` on-the-fly without modifying the static base model
+  weights in Pool 0. CPU fallback implements the full matrix multiply; GPU path provides
+  device pointers for fused kernel dispatch.
+- **LRU eviction:** `evict_lru_lora()` automatically evicts the Least Recently Used adapter
+  back to System DDR RAM when VRAM is constrained, retaining only the active adapter(s) in
+  Pools 1–4. `evict_all_except_active()` clears all cached adapters.
+- **Thread-safety:** `LoRaRegistry` uses `std::shared_mutex` for registry state with
+  per-adapter `std::mutex` for state transitions. `LoRaSwapper` uses `std::shared_mutex`
+  for swap orchestration.
+- **Adapter state machine:** `Unregistered → InDDR → Loading → Active → Evicting → InDDR`.
+- **CUDA + ROCm dual-HAL:** 18 CUDA `#if` blocks ↔ 18 ROCm `#elif` blocks — perfectly
+  balanced. `hipMemcpyAsync`, `hipHostMalloc`, `hipStreamCreate` etc. throughout.
+
+### Python Binding
+
+```python
+import red_daft_lora as lora
+
+lora.initialize()
+lora.register_lora("coding_v2", 1024*1024, "/data/coding_v2.bin")  # 1 MB
+lora.register_lora("reasoning_v1", 1024*1024, "/data/reasoning_v1.bin")
+lora.swap_to_coding_lora("coding_v2")     # async host → VRAM
+lora.swap_to_reasoning_lora("reasoning_v1")
+lora.evict_lru()                           # evict coldest adapter
+print(lora.lora_stats())                   # pool info, active adapter, DDR usage
+lora.print_stats()                         # console summary
+```
+
+### Build + Test
+
+```bash
+# C++ tests
+/tmp/vram-build/lora_test                  # 9 tests: register, hot-swap, LRU, SGMV, evict-all, etc.
+
+# Python
+RD_USE_CUDA=1 pip install -e ./vram-engine
+python -c "import red_daft_lora; red_daft_lora.initialize(); red_daft_lora.print_stats()"
+```
+
+### 9-Test Smoke Coverage
+
+| # | Test | What it proves |
+|---|---|---|
+| 1 | Register 4 adapters | All 4 LoRa pools accepted |
+| 2 | Hot-swap sequence | Coding → Reasoning → System → Conversation (all active) |
+| 3 | LRU victim | 5th adapter auto-evicts coldest |
+| 4 | SGMV patching | `B @ A @ input` produces correct output |
+| 5 | Empty adapter | 0-byte adapter handled gracefully |
+| 6 | Host data integrity | Pinned host data survives alloc/free cycles |
+| 7 | Stats | `lora_stats()` returns correct pool/adapter counts |
+| 8 | Evict-all | All adapters returned to DDR |
+| 9 | Raw registration | Unmanaged adapter registration works |
+
+See `vram-engine/tests/test_lora.cpp`, `docs/ARCHITECTURE.md §3.3`.
 
 ## Local AI + daft-ai-guard v2
 
@@ -286,6 +418,7 @@ tail /var/lib/daft-ai-guard/audit.log                    # every decision
 ```
 
 ## AMD / ROCm packages
+
 Specs under `packages/specs/amd/`: `amdgpu-dkms`, `rocm-runtime`, `rocblas`,
 `miopen`, `rocm-smi`, `rocm-dev`, `pytorch-rocm`.
 ```bash
@@ -294,6 +427,7 @@ ROCM_VER=6.2 bash packages/specs/amd/rocm-runtime.daftspec
 ```
 
 ## NVIDIA / CUDA packages
+
 Specs under `packages/specs/nvidia/`: `cuda-drivers`, `cuda-toolkit`,
 `cudnn`, `tensorrt`. Default track **CUDA 12.9** (RTX 50xx-capable); override
 with `CUDA_VER=12.6` etc.
@@ -306,23 +440,35 @@ CUDA_VER=12.9 bash packages/specs/nvidia/cuda-toolkit.daftspec
 
 | Workflow | What it proves |
 |---|---|
-| `iso.yml` | full distro builds; hybrid BIOS+EFI ISO artifact |
-| `build.yml` | container image, daft-pkg install, ai-guard v2 policy tests, vram-engine CPU smoke (`vram_test` + `stress_all_pools`) |
-| `gpu-compat.yml` | kernel Kconfig audit ≥33/35, nvcc sm_86/89/120, hipcc gfx90a/gfx1100, fallback rootfs 25/25 |
-| `ai-kernel.yml` | Demo Box **10 pools** builds + QEMU boot + **7/7 MATCH** (incl. training writeback) + KV/scratch/10-pool + elasticity |
-| `amd-rocm.yml` / `nvidia-cuda.yml` | live-repo package validation + toolchain smoke |
+| `iso.yml` | Full distro builds; hybrid BIOS+EFI ISO artifact (~430 MB) |
+| `build.yml` | Container image, `daft-pkg` install, `ai-guard` v2, `vram_engine` CPU smoke (`vram_test` + `stress_all_pools`), `lora_test` (LoRa Brain Engine: 9 tests) |
+| `gpu-compat.yml` | Kconfig audit ≥33/35, nvcc sm_86/89/120, hipcc gfx90a/gfx1100, fallback 25/25 |
+| `ai-kernel.yml` | Demo Box **10 pools** — QEMU boot, 7/7 MATCH (incl. t-verify WRITEBACK), KV/scratch/10-pool, elasticity |
+| `amd-rocm.yml` | Live-repo AMD package validation (rocm-runtime, amdgpu-dkms, rocm-dev, rocm-smi, miopen, pytorch-rocm, rocblas) + toolchain smoke |
+| `nvidia-cuda.yml` | Live-repo NVIDIA package validation (cuda-drivers, cuda-toolkit, cudnn, tensorrt) + `nvcc` smoke |
 
 ## Directory layout
 ```
 build/          ISO pipeline, hardened+GPU kernel config, Plymouth, assets gen
 packages/       daft-pkg, deb-adapter, daft specs, gpu/ (daft-gpu + scorer), daft-kernel/
 ai/             Modelfile, ollama-setup, daft-ai-guard v2 (+proxy, service)
-shell/          daft-shell (in-RAM execution)
-kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools)
-vram-engine/    C++20 tiered manager: 10 pools, VRAM+DDR pinned, CUDA/HIP HAL, pybind11
+shell/          daft-shell (in-RAM C/Python execution)
+kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools: HMM v3)
+vram-engine/    C++20 tiered manager (~4000 lines total)
+                  ├── include/red_daft_vram.h          10-pool VRAM engine header
+                  ├── include/red_daft_lora_manager.h   LoRa Brain Engine header
+                  ├── src/red_daft_vram.cpp             VRAM engine impl (10 pools, HAL)
+                  ├── src/red_daft_lora_manager.cpp     LoRa engine impl (4 pools, SGMV, LRU)
+                  ├── src/pybind_wrapper.cpp            pybind11 VRAM module
+                  ├── src/lora_pybind_wrapper.cpp       pybind11 LoRa module
+                  ├── tests/test_vram.cpp               10-pool smoke (PASS)
+                  ├── tests/test_lora.cpp               9 LoRa tests (ALL PASS)
+                  ├── benchmarks/stress_3b.py           3B Kaggle/Linux stress
+                  ├── CMakeLists.txt                    CMake (CUDA/ROCm/CPU)
+                  └── setup.py                          pip install (auto-detect backend)
 ux/             branding, MOTD, first-run ID card, installer
-docs/           architecture
-.github/        ci workflows (iso, build, gpu-compat, ai-kernel, rocm, cuda)
+docs/           architecture (ARCHITECTURE.md)
+.github/        ci workflows (iso, build, gpu-compat, ai-kernel, amd-rocm, nvidia-cuda)
 ```
 
 ## License
