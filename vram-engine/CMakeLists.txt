@@ -22,9 +22,10 @@ elseif(USE_CUDA)
   endif()
 endif()
 
-# ── Core library ───────────────────────────────────────────────────────
+# ── Core library (+ LoRa Brain Engine) ───────────────────────────────
 add_library(red_daft_vram STATIC
   src/red_daft_vram.cpp
+  src/red_daft_lora_manager.cpp
 )
 target_include_directories(red_daft_vram PUBLIC include)
 target_compile_options(red_daft_vram PRIVATE -O3 -Wall -Wextra)
@@ -54,7 +55,7 @@ if(BUILD_PYBIND)
     message(STATUS "[VRAM] Torch found — enabling torch integration in pybind")
   endif()
 
-  pybind11_add_module(red_daft_vram_py src/pybind_wrapper.cpp)
+  pybind11_add_module(red_daft_vram_py src/pybind_wrapper.cpp src/lora_pybind_wrapper.cpp)
   target_link_libraries(red_daft_vram_py PRIVATE red_daft_vram)
   target_include_directories(red_daft_vram_py PRIVATE include)
 
@@ -73,13 +74,16 @@ if(BUILD_PYBIND)
   set_target_properties(red_daft_vram_py PROPERTIES OUTPUT_NAME "red_daft_vram")
 endif()
 
-# ── Native test binary (CPU fallback, no Python) ──────────────────────
+# ── Native test binaries (CPU fallback, no Python) ───────────────────
 add_executable(vram_test tests/test_vram.cpp)
 target_link_libraries(vram_test PRIVATE red_daft_vram)
 
+add_executable(lora_test tests/test_lora.cpp)
+target_link_libraries(lora_test PRIVATE red_daft_vram)
+
 # ── Install ────────────────────────────────────────────────────────────
 install(TARGETS red_daft_vram DESTINATION lib)
-install(FILES include/red_daft_vram.h DESTINATION include)
+install(FILES include/red_daft_vram.h include/red_daft_lora_manager.h DESTINATION include)
 if(BUILD_PYBIND)
   install(TARGETS red_daft_vram_py DESTINATION .)
 endif()

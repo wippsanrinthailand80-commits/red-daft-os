@@ -97,6 +97,26 @@ High-performance Custom VRAM Management Engine for 3B/7B/32B LLMs. Mirrors the 1
 * **Python:** `vram-engine/src/pybind_wrapper.cpp:1` `PYBIND11_MODULE(red_daft_vram)` exposes `PoolType`, `PoolStats`, `EngineConfig`, `Block` (RAII), `allocate/allocate_handle/deallocate/prefetch/offload/borrow`, `allocate_torch()` (optional `torch/extension.h`), `stress_3b_benchmark(layers=28, hidden=3072)` (28-layer double-buffered streaming + KV paged + activation FIFO + emergency borrows) and `stress_all_pools()`. Build via `CMakeLists.txt:1` or `setup.py:1` (`pip install -e .`).
 * **Tests:** `vram-engine/tests/test_vram.cpp:1` (10×1 MiB alloc, offload/prefetch round-trip, borrow, double-buffer), `benchmarks/stress_3b.py:1` (Kaggle one-liner).
 
+### 3.3 LoRa Brain Engine (`vram-engine/src/red_daft_lora_manager.{h,cpp}`)
+
+Modular LoRa adapter hot-swap engine for multi-LoRa serving on a shared base model (1B–3B). Manages microsecond-level swapping of LoRa adapters (10–50 MB each) between System DDR4/DDR5 (pinned host memory) and GPU VRAM across the 10 OS Memory Pools.
+
+| LoRa Pool | VRAM Pool | Name | Role |
+|-----------|-----------|------|------|
+| 1 | 0–4 region | SystemControl | OS Control & System Agent LoRa |
+| 2 | 0–4 region | ReasoningLogic | Reasoning & Logic LoRa |
+| 3 | 0–4 region | CodingSyntax | Coding & Syntax LoRa |
+| 4 | 0–4 region | ConversationLang | Conversation & Language LoRa |
+
+* **Zero-copy / async hot-swapping:** Inactive LoRa weights live in Host Pinned Memory (`cudaMallocHost` / `hipHostMalloc`). Async loader uses `cudaMemcpyAsync` / `hipMemcpyAsync` on per-adapter CUDA/HIP Streams to pre-fetch the required adapter *before* the compute layer executes, avoiding GPU stalls. CPU fallback uses `std::memcpy` for CI/Kaggle.
+* **SGMV-style weight patching:** `apply_lora_weights()` computes `output = base_output + B @ A @ input` on-the-fly without modifying the static base model weights in Pool 0. CPU fallback implements the full matrix multiply; GPU path provides device pointers for fused kernel dispatch.
+* **LRU eviction:** `evict_lru_lora()` automatically evicts the Least Recently Used adapter back to System DDR RAM when VRAM is constrained, retaining only the active adapter(s) in Pools 1–4. `evict_all_except_active()` clears all cached adapters.
+* **Thread-safety:** `LoRaRegistry` uses `std::shared_mutex` for registry state with per-adapter `std::mutex` for state transitions. `LoRaSwapper` uses `std::shared_mutex` for swap orchestration.
+* **API:** `red_daft_lora_manager.h` defines `LoRaAdapter` (state machine: Unregistered→InDDR→Loading→Active→Evicting→InDDR), `LoRaRegistry` (register/lookup/LRU/touch), `LoRaSwapper` (hot_swap_async, swap_to_pool, swap_to_coding_lora, apply_lora_weights, evict_lru_lora, print_stats).
+* **Python:** `vram-engine/src/lora_pybind_wrapper.cpp` `PYBIND11_MODULE(red_daft_lora)` exposes `LoRaPool`, `LoRaState`, `LoRaInfo`, `LoRaStats`, `initialize/register_lora/swap_to/swap_to_coding_lora/swap_to_reasoning_lora/evict_lru/print_stats/lora_stats`.
+* **Tests:** `vram-engine/tests/test_lora.cpp` (9 tests: register 4 adapters, hot-swap sequence, LRU victim, SGMV patching, empty adapter, host data integrity, stats, evict-all, raw registration).
+* **Build:** `CMakeLists.txt` adds `red_daft_lora_manager.cpp` to `red_daft_vram` library and `lora_test` binary. `setup.py` adds LoRa sources to Python extension.
+
 ## 4. GPU Subsystem
 
 - **Kconfig fragment** `build/configs/kernel-config.x86_64` — `amdgpu`, `radeon`, `nouveau`, `TTM`, `ZONE_DEVICE`, `HMM`, `IOMMU`, `VFIO` etc., 35-pt audit.
@@ -143,8 +163,12 @@ ai/             Modelfile, ollama-setup, daft-ai-guard v2 (+proxy, service)
 shell/          daft-shell (in-RAM execution)
 kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools: HMM v3)
 vram-engine/    C++20 tiered manager: 10 pools, VRAM+DDR pinned, CUDA/HIP HAL, pybind11
-                 include/red_daft_vram.h  src/red_daft_vram.cpp  src/pybind_wrapper.cpp
-                 tests/test_vram.cpp  benchmarks/stress_3b.py  CMakeLists.txt  setup.py
+                 LoRa Brain Engine: async hot-swap, LRU eviction, SGMV patching
+                 include/red_daft_vram.h  include/red_daft_lora_manager.h
+                 src/red_daft_vram.cpp  src/red_daft_lora_manager.cpp
+                 src/pybind_wrapper.cpp  src/lora_pybind_wrapper.cpp
+                 tests/test_vram.cpp  tests/test_lora.cpp
+                 benchmarks/stress_3b.py  CMakeLists.txt  setup.py
 ux/             branding, MOTD, first-run ID card, installer
 docs/           architecture (this file)
 .github/        ci workflows (iso, build, gpu-compat, ai-kernel, rocm, cuda)
@@ -155,7 +179,7 @@ docs/           architecture (this file)
 | Workflow | What it proves |
 |---|---|
 | `iso.yml` | Full distro builds; hybrid BIOS+EFI ISO artifact |
-| `build.yml` | Container image, `daft-pkg` install, `ai-guard` v2, `vram-engine` CPU smoke (`vram_test`, `stress_all_pools`) |
+| `build.yml` | Container image, `daft-pkg` install, `ai-guard` v2, `vram-engine` CPU smoke (`vram_test`, `stress_all_pools`), `lora_test` (LoRa Brain Engine: 9 tests: register, hot-swap, LRU, SGMV, evict-all) |
 | `gpu-compat.yml` | Kconfig audit ≥33/35, nvcc sm_86/89/120, hipcc gfx90a/gfx1100, fallback 25/25 |
 | `ai-kernel.yml` | Demo Box **10 pools** — QEMU boot, 7/7 MATCH (incl. t-verify WRITEBACK), KV/scratch/10-pool, elasticity 128 pages |
 | `amd-rocm.yml` / `nvidia-cuda.yml` | Live-repo package validation + toolchain smoke |

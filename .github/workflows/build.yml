@@ -74,6 +74,14 @@ jobs:
           if [ "$rc" -eq 0 ]; then echo "scope gate OK (lab scope upgrades to allow)"
           else echo "expected allow under lab scope, got $rc"; exit 1; fi
 
+      - name: Build + run LoRa Brain Engine smoke test
+        run: |
+          cd vram-engine
+          g++ -std=c++20 -Wall -Wextra -O3 -I include \
+              src/red_daft_vram.cpp src/red_daft_lora_manager.cpp tests/test_lora.cpp \
+              -o /tmp/lora_test
+          /tmp/lora_test
+
   container-image:
     runs-on: ubuntu-latest
     steps:

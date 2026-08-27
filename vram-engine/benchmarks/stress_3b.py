@@ -5,7 +5,8 @@ Simulates a 3B LLM training/inference footprint with 10 pools.
 
 Usage:
   python stress_3b.py --layers 28 --hidden 3072 --seq-len 2048 --iters 3
-  RD_USE_CUDA=1 python stress_3b.py  # with GPU
+  RD_USE_CUDA=1 python stress_3b.py  # NVIDIA GPU
+  RD_USE_ROCM=1 python stress_3b.py  # AMD GPU
   python stress_3b.py --torch  # also test torch integration if torch installed
 """
 import argparse

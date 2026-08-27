@@ -246,8 +246,18 @@ PYBIND11_MODULE(red_daft_vram, m) {
           7 AsyncStreamQueue, 8 SystemIpcShared, 9 EmergencyOverflow
 
         Build with CUDA:
-          c++ -O3 -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) \
-              src/red_daft_vram.cpp src/pybind_wrapper.cpp -o red_daft_vram*.so -DRD_USE_CUDA -lcudart
+          c++ -O3 -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) \\
+              src/red_daft_vram.cpp src/pybind_wrapper.cpp -o red_daft_vram*.so \\
+              -DRD_USE_CUDA -lcudart
+
+        Build with AMD ROCm:
+          c++ -O3 -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) \\
+              src/red_daft_vram.cpp src/pybind_wrapper.cpp -o red_daft_vram*.so \\
+              -DRD_USE_ROCM -lhip
+
+        CPU fallback (no GPU):
+          c++ -O3 -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) \\
+              src/red_daft_vram.cpp src/pybind_wrapper.cpp -o red_daft_vram*.so
     )pbdoc";
 
     // ── PoolType enum ─────────────────────────────────────────────
@@ -429,8 +439,10 @@ PYBIND11_MODULE(red_daft_vram, m) {
             // Build options
             auto opts = torch::TensorOptions().dtype(dtype);
             if (dptr) {
-                // Try to create CUDA tensor if we have a device pointer and CUDA is available
-#if defined(RD_BACKEND_CUDA) || defined(RD_BACKEND_ROCM)
+                // Try to create CUDA/HIP tensor if we have a device pointer
+#if defined(RD_BACKEND_ROCM)
+                opts = opts.device(torch::kHIP, 0);
+#elif defined(RD_BACKEND_CUDA)
                 opts = opts.device(torch::kCUDA, 0);
 #else
                 opts = opts.device(torch::kCPU);
@@ -456,7 +468,15 @@ PYBIND11_MODULE(red_daft_vram, m) {
             // Quick torch alloc benchmark
             std::string out;
             for (int i=0;i<3;i++) {
-                auto t = torch::randn({hidden, hidden}, torch::TensorOptions().dtype(torch::kBFloat16).device(torch::kCUDA,0));
+                auto t = torch::randn({hidden, hidden}, torch::TensorOptions().dtype(torch::kBFloat16)
+#if defined(RD_BACKEND_ROCM)
+                    .device(torch::kHIP, 0)
+#elif defined(RD_BACKEND_CUDA)
+                    .device(torch::kCUDA, 0)
+#else
+                    .device(torch::kCPU)
+#endif
+                );
                 out += "torch tensor " + std::to_string(i) + " ok\n";
             }
             return out;

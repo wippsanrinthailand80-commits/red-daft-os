@@ -29,17 +29,21 @@ libraries = []
 
 if os.environ.get("RD_USE_ROCM") == "1":
     define_macros.append(("RD_USE_ROCM", "1"))
-    libraries += ["amdhip64", "hip_hcc"]
+    libraries += ["amdhip64"]
 elif os.environ.get("RD_USE_CUDA") == "1":
     define_macros.append(("RD_USE_CUDA", "1"))
     libraries += ["cudart"]
-    extra_compile_args += ["-DRD_USE_CUDA"]
 else:
-    # Auto-detect: if cuda_runtime.h exists, use CUDA
+    # Auto-detect: check for ROCm first (AMD), then CUDA (NVIDIA), then CPU fallback
     import glob
-    if glob.glob("/usr/local/cuda/include/cuda_runtime.h") or glob.glob("/usr/include/cuda_runtime.h"):
+    if glob.glob("/opt/rocm/include/hip/hip_runtime.h"):
+        define_macros.append(("RD_USE_ROCM", "1"))
+        libraries += ["amdhip64"]
+        print("[setup] ROCm detected — building with AMD HIP backend")
+    elif glob.glob("/usr/local/cuda/include/cuda_runtime.h") or glob.glob("/usr/include/cuda_runtime.h"):
         define_macros.append(("RD_USE_CUDA", "1"))
         libraries += ["cudart"]
+        print("[setup] CUDA detected — building with NVIDIA CUDA backend")
     else:
         print("[setup] No CUDA/ROCm detected — building CPU fallback (benchmarks still run)")
 
@@ -47,7 +51,9 @@ ext = Extension(
     "red_daft_vram",
     sources=[
         "src/red_daft_vram.cpp",
+        "src/red_daft_lora_manager.cpp",
         "src/pybind_wrapper.cpp",
+        "src/lora_pybind_wrapper.cpp",
     ],
     include_dirs=[
         "include",
