@@ -90,6 +90,50 @@ jobs:
               -o /tmp/nano_test
           /tmp/nano_test
 
+      - name: Build + run Red Daft Evaluation Engine (red-eval) smoke test
+        run: |
+          cd vram-engine
+          g++ -std=c++20 -Wall -Wextra -O3 -I include -pthread \
+              src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+              src/red_eval_engine.cpp tests/test_eval.cpp \
+              -o /tmp/eval_test
+          /tmp/eval_test
+          # CLI: JSON diagnostic report must be parseable by jq
+          g++ -std=c++20 -Wall -Wextra -O3 -I include -pthread \
+              src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+              src/red_eval_engine.cpp src/red_eval_cli.cpp \
+              -o /tmp/red-eval
+          /tmp/red-eval --json | jq -e '.report.skills | length == 5' \
+            > /dev/null && echo "red-eval JSON report has 5 skill vectors OK"
+
+      - name: Build + run Red Daft Evaluation Engine Python bridge smoke
+        run: |
+          cd vram-engine
+          pip install pybind11
+          EXT=$(python3 -c "from sysconfig import get_config_var; print(get_config_var('EXT_SUFFIX'))")
+          PYBIND=$(python3 -c "import pybind11; print(pybind11.get_include())")
+          PYINC=$(python3 -c "from sysconfig import get_paths; print(get_paths()['include'])")
+          g++ -std=c++20 -Wall -O3 -fPIC -shared -pthread \
+              -I include -I "$PYBIND" -I "$PYINC" \
+              src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+              src/red_eval_engine.cpp src/eval_pybind_wrapper.cpp \
+              -o red_eval${EXT}
+          PYTHONPATH=. python3 - <<'EOF'
+          import red_eval_bridge as rb
+          assert rb.available(), "compiled red_eval extension should be loaded"
+          rb.set_backend_mock()
+          rb.set_skill_enabled(3, False)
+          assert rb.skill_enabled(3) is False, "skill toggle in Python failed"
+          rb.run_diagnostics()
+          d = rb.report_dict()
+          assert d["report"]["total_probes"] >= 8, "expected >=8 probes"
+          assert len(d["report"]["skills"]) == 5, "expected 5 skill vectors"
+          n = rb.export_failed_dataset("/tmp/red_failed_dataset.jsonl")
+          assert n >= 0, "exporter should return a count"
+          print("red_eval Python bridge smoke OK (skills=%d probes=%d failures=%d)"
+                % (len(d["report"]["skills"]), d["report"]["total_probes"], n))
+          EOF
+
       - name: Build + run VRAM + LoRa benchmarks (CPU fallback)
         run: |
           cd vram-engine

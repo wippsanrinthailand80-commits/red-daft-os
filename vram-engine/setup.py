@@ -95,13 +95,28 @@ ext_nano = Extension(
     libraries=libraries,
 )
 
+ext_eval = Extension(
+    "red_eval",
+    sources=[
+        "src/red_daft_vram.cpp",
+        "src/red_daft_lora_manager.cpp",
+        "src/red_eval_engine.cpp",
+        "src/eval_pybind_wrapper.cpp",
+    ],
+    include_dirs=list(common_incs),
+    language="c++",
+    extra_compile_args=extra_compile_args,
+    define_macros=define_macros,
+    libraries=libraries,
+)
+
 setup(
     name="red-daft-vram",
     version="1.0.0",
-    description="Red Daft OS — 10-pool tiered VRAM Management Engine (CUDA/HIP HAL, async prefetch, emergency borrowing) + LoRa Brain Engine + Nano-Context Engine",
+    description="Red Daft OS — 10-pool tiered VRAM Management Engine (CUDA/HIP HAL, async prefetch, emergency borrowing) + LoRa Brain Engine + Nano-Context Engine + Isolated Evaluation Engine (red-eval)",
     long_description=open("README.md").read() if pathlib.Path("README.md").exists() else "",
     long_description_content_type="text/markdown",
-    ext_modules=[ext_vram, ext_lora, ext_nano],
+    ext_modules=[ext_vram, ext_lora, ext_nano, ext_eval],
     zip_safe=False,
     python_requires=">=3.8",
     install_requires=["pybind11>=2.10"],

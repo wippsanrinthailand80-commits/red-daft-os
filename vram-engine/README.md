@@ -180,6 +180,75 @@ c++ -std=c++20 -Wall -Wextra -O3 -I include \
 
 ---
 
+## Red Daft Isolated Evaluation Engine (`red-eval`)
+
+Hostname-free, **isolated** diagnostic engine that profiles an LLM across the
+**5 Core Vectors (Diagnostic Matrix)** without disturbing active VRAM Pool 0–9
+states. Runs lightweight async probes, produces a structured JSON report, and
+exports failure cases for targeted LoRa fine-tuning. Keeps peak RAM far below
+the 100 MB budget.
+
+### 5 Core Vectors (scoring matrix)
+
+| # | Skill vector            | LoRa pool (Brain Engine)     |
+|---|-------------------------|------------------------------|
+| a | GeneralLanguage         | Pool 4 — ConversationLang    |
+| b | ReasoningMath           | Pool 2 — ReasoningLogic      |
+| c | CodeGenSyntax           | Pool 3 — CodingSyntax        |
+| d | StructuredOutput        | Pool 1 — SystemControl       |
+| e | DomainKnowledge         | Pool 1 — SystemControl (x-cut)|
+
+Probe types: **Perplexity** (fluency), **Multiple-Choice** (reasoning accuracy),
+**CodeGen** (syntax validity), **JsonSchema** (structured/function-call
+adherence), **Domain** (factoid verification).
+
+### Zero-copy IPC (`redctl` + LoRa hot-swap)
+
+`RedCtlIpc` talks to the AI-Kernel's `redctl` via a small Unix Domain Socket
+protocol (`REDCTL` framing, op 1 = swap LoRa). When no live `redctl` is
+reachable (CPU / Kaggle / Colab), it routes in-process to the `LoRaSwapper`
+for **microsecond LoRa hot-swapping** — skill toggles load/unload the matching
+pool LoRa without evicting otherwise-active adapters.
+
+### CLI
+
+```bash
+g++ -std=c++20 -Wall -Wextra -O3 -I include -pthread \
+    src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+    src/red_eval_engine.cpp src/red_eval_cli.cpp -o red-eval
+
+./red-eval              # run diagnostics + summary matrix
+./red-eval --json       # JSON diagnostic report to stdout (jq-parseable)
+./red-eval --tune       # interactive TUI: toggle skills → LoRa hot-swap
+./red-eval --export p   # export failed instances to path
+```
+
+### Python bridge (Kaggle / Colab)
+
+`red_eval_bridge.py` wraps the compiled `red_eval` C++ extension and falls
+back to a deterministic emulator when the `.so` is absent — so the full
+probe→matrix→exporter pipeline runs anywhere.
+
+```python
+import red_eval_bridge as rb
+rb.set_backend_mock()          # deterministic; safe on CPU runners
+rb.set_skill_enabled(3, False) # disable StructuredOutput → LoRa hot-swap
+rb.run_diagnostics()
+print(rb.report_dict())        # 5-vector scoring matrix
+n = rb.export_failed_dataset("red_failed_dataset.jsonl")  # LoRa fine-tune set
+```
+
+Native test (no Python/GPU needed):
+
+```bash
+g++ -std=c++20 -Wall -Wextra -O3 -I include -pthread \
+    src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+    src/red_eval_engine.cpp tests/test_eval.cpp -o /tmp/eval_test
+/tmp/eval_test   # probes, matrix, JSON report, exporter, toggling → ALL PASS
+```
+
+---
+
 ## Integration with Red Daft OS
 
 * **Bare-metal AI-Kernel** (`kernel/ai-kernel/`): the kernel's HMM already exposes 10 pools (0..9) via `hmm_register_model_p(..., pool)` and `kernel pool` CLI. The VRAM engine is the **Linux counterpart** for CUDA/HIP.

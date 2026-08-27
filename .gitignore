@@ -13,3 +13,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 *.so
+# Eval engine generated datasets
+red_failed_dataset.jsonl

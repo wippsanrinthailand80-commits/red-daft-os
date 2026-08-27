@@ -130,6 +130,24 @@ Keeps **Base Model Weights strictly FP16 in VRAM Pool 0** and routes **all** Inp
 - **Python:** `vram-engine/src/nano_pybind_wrapper.cpp` `PYBIND11_MODULE(red_daft_nano_context)` exposes `NanoContextConfig`, `NanoQuantStats`, `NanoStreamStats`, `NanoPoolStats`, `nano_initialize/request_begin/request_end/kv_store/kv_load/stream_push/stream_pop/active_pools/free_pools/pool_stats/print_stats`.
 - **Build:** `CMakeLists.txt` adds `red_daft_nano_context.cpp` to `red_daft_vram` + `nano_test` binary + `red_daft_nano_context_py` pybind module. `setup.py` adds a third extension (one `PYBIND11_MODULE` per `.so`).
 
+### 3.5 Red Daft Evaluation Engine (`red-eval`) — `vram-engine/src/red_eval_engine.{h,cpp}`
+
+**Isolated, low-memory (< ~100 MB) async probe diagnostic engine.** Profiles the hot-swapped LLM/LoRa stack across the **5 Core Vectors** without mutating active VRAM Pool 0–9 states, emitting a structured JSON diagnostic report and exporting failure instances for LoRa fine-tuning.
+
+| # | Skill vector            | Probe types                              | LoRa pool (Brain Engine) |
+|---|-------------------------|------------------------------------------|--------------------------|
+| a | GeneralLanguage         | Perplexity, MultipleChoice               | Pool 4 — ConversationLang|
+| b | ReasoningMath           | Perplexity, MultipleChoice               | Pool 2 — ReasoningLogic  |
+| c | CodeGenSyntax           | CodeGen (syntax validity)                | Pool 3 — CodingSyntax    |
+| d | StructuredOutput        | JsonSchema (JSON / function-call)        | Pool 1 — SystemControl   |
+| e | DomainKnowledge         | Domain (factoid verify)                  | Pool 1 — SystemControl (cross-cutting) |
+
+- **Zero-copy IPC / LoRa hot-swap:** `RedCtlIpc` speaks a tiny Unix Domain Socket protocol to the AI-Kernel's `redctl` (`REDCTL` framing, op 1 = swap LoRa). When no live `redctl` exists (CPU / Kaggle / Colab), it routes in-process to `LoRaSwapper` for microsecond skill↔pool hot-swapping — toggles load/unload only the matching pool LoRa, never disturbing otherwise-active adapters.
+- **Scoring matrix:** per-vector `overall`/`accuracy`/`latency_us`, cross-normalized from prompt-type verifiers (balanced JSON braces + expected-key presence, code brace/paren/bracket balance, exact MC match, perplexity fluency clamp).
+- **Failure exporter:** hallucinated / syntax-broken / schema-breaking outputs are captured with prompt+expected+error and appended to `red_failed_dataset.jsonl` (per-probe id, skill, timestamp) for targeted LoRa fine-tuning.
+- **Interfaces:** `include/red_eval_engine.h` (engine + `RedCtlIpc`), `src/red_eval_engine.cpp` (Diagnostic Logic + Kernel IPC), `src/red_eval_cli.cpp` (UI Rendering — `red-eval [--json|--tune|--export]` TUI), `src/eval_pybind_wrapper.cpp` (`PYBIND11_MODULE(red_eval)`), `red_eval_bridge.py` (Kaggle/Colab PyTorch wrapper + CPU emulator fallback), `tests/test_eval.cpp` (12 native assertions).
+- **Build:** `CMakeLists.txt` adds `red_eval_engine.cpp` to `red_daft_vram` + `eval_test` + `red_eval_cli` binary + `red_eval_py` pybind module (4th module; one `PYBIND11_MODULE` per `.so`). `setup.py` adds a fourth extension. `build.yml` runs native `eval_test` + CLI `--json | jq` + Python bridge smoke.
+
 ## 4. GPU Subsystem
 
 - **Kconfig fragment** `build/configs/kernel-config.x86_64` — `amdgpu`, `radeon`, `nouveau`, `TTM`, `ZONE_DEVICE`, `HMM`, `IOMMU`, `VFIO` etc., 35-pt audit.
@@ -177,13 +195,18 @@ shell/          daft-shell (in-RAM execution)
 kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools: HMM v3)
 vram-engine/    C++20 tiered manager: 10 pools, VRAM+DDR pinned, CUDA/HIP HAL, pybind11
                  LoRa Brain Engine: async hot-swap, LRU eviction, SGMV patching
+                 Nano-Context Engine: INT4/INT2 KV, token stream ring, Nano-Pools
+                 Isolated Evaluation Engine (red-eval): 5 skill vectors, JSON report,
+                   --tune LoRa hot-swap TUI, red_failed_dataset.jsonl exporter
                  include/red_daft_vram.h  include/red_daft_lora_manager.h
-                 include/red_daft_nano_context.h
+                 include/red_daft_nano_context.h  include/red_eval_engine.h
                  src/red_daft_vram.cpp  src/red_daft_lora_manager.cpp
-                 src/red_daft_nano_context.cpp
+                 src/red_daft_nano_context.cpp  src/red_eval_engine.cpp
                  src/pybind_wrapper.cpp  src/lora_pybind_wrapper.cpp
-                 src/nano_pybind_wrapper.cpp
+                 src/nano_pybind_wrapper.cpp  src/eval_pybind_wrapper.cpp
+                 src/red_eval_cli.cpp  red_eval_bridge.py
                  tests/test_vram.cpp  tests/test_lora.cpp  tests/test_nano.cpp
+                 tests/test_eval.cpp
                  benchmarks/stress_3b.py  CMakeLists.txt  setup.py
  ux/             branding, MOTD, first-run ID card, installer
 docs/           architecture (this file)
@@ -195,7 +218,7 @@ docs/           architecture (this file)
 | Workflow | What it proves |
 |---|---|
 | `iso.yml` | Full distro builds; hybrid BIOS+EFI ISO artifact |
-| `build.yml` | Container image, `daft-pkg` install, `ai-guard` v2, `vram-engine` CPU smoke (`vram_test`, `stress_all_pools`), `lora_test` (LoRa Brain Engine: 9 tests), `nano_test` (Nano-Context Engine: KV INT4/INT2, token stream, pool recycle) + `red_daft_nano_context` Python smoke |
+| `build.yml` | Container image, `daft-pkg` install, `ai-guard` v2, `vram-engine` CPU smoke (`vram_test`, `stress_all_pools`), `lora_test` (LoRa Brain Engine: 9 tests), `nano_test` (Nano-Context Engine: KV INT4/INT2, token stream, pool recycle), `eval_test` + `red-eval --json | jq` (Evaluation Engine: 12 assertions, 5-vector JSON report) + `red_daft_nano_context` Python smoke and `red_eval_bridge` PyTorch-bridge smoke |
 | `gpu-compat.yml` | Kconfig audit ≥33/35, nvcc sm_86/89/120, hipcc gfx90a/gfx1100, fallback 25/25 |
 | `ai-kernel.yml` | Demo Box **10 pools** — QEMU boot, 7/7 MATCH (incl. t-verify WRITEBACK), KV/scratch/10-pool, elasticity 128 pages |
 | `amd-rocm.yml` / `nvidia-cuda.yml` | Live-repo package validation + toolchain smoke |
