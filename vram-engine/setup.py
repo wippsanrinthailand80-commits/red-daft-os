@@ -47,18 +47,35 @@ else:
     else:
         print("[setup] No CUDA/ROCm detected — building CPU fallback (benchmarks still run)")
 
-ext = Extension(
+# Two separate Python extensions:
+#   red_daft_vram — core VRAM engine (red_daft_vram.cpp + pybind_wrapper.cpp)
+#   red_daft_lora  — LoRa Brain Engine (red_daft_vram.cpp + red_daft_lora_manager.cpp + lora_pybind_wrapper.cpp)
+# Each compiles the shared implementation files; a single .so can hold only
+# one PYBIND11_MODULE, so they must be built independently.
+
+common_incs = ["include", include_pybind]
+
+ext_vram = Extension(
     "red_daft_vram",
     sources=[
         "src/red_daft_vram.cpp",
-        "src/red_daft_lora_manager.cpp",
         "src/pybind_wrapper.cpp",
+    ],
+    include_dirs=list(common_incs),
+    language="c++",
+    extra_compile_args=extra_compile_args,
+    define_macros=define_macros,
+    libraries=libraries,
+)
+
+ext_lora = Extension(
+    "red_daft_lora",
+    sources=[
+        "src/red_daft_vram.cpp",
+        "src/red_daft_lora_manager.cpp",
         "src/lora_pybind_wrapper.cpp",
     ],
-    include_dirs=[
-        "include",
-        include_pybind,
-    ],
+    include_dirs=list(common_incs),
     language="c++",
     extra_compile_args=extra_compile_args,
     define_macros=define_macros,
@@ -68,10 +85,10 @@ ext = Extension(
 setup(
     name="red-daft-vram",
     version="1.0.0",
-    description="Red Daft OS — 10-pool tiered VRAM Management Engine (CUDA/HIP HAL, async prefetch, emergency borrowing)",
+    description="Red Daft OS — 10-pool tiered VRAM Management Engine (CUDA/HIP HAL, async prefetch, emergency borrowing) + LoRa Brain Engine",
     long_description=open("README.md").read() if pathlib.Path("README.md").exists() else "",
     long_description_content_type="text/markdown",
-    ext_modules=[ext],
+    ext_modules=[ext_vram, ext_lora],
     zip_safe=False,
     python_requires=">=3.8",
     install_requires=["pybind11>=2.10"],
