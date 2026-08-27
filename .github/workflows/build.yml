@@ -118,9 +118,13 @@ jobs:
               src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
               src/red_eval_engine.cpp src/eval_pybind_wrapper.cpp \
               -o red_eval${EXT}
+          ls -la red_eval*.so
           PYTHONPATH=. python3 - <<'EOF'
           import red_eval_bridge as rb
-          assert rb.available(), "compiled red_eval extension should be loaded"
+          if not rb.available():
+              import io
+              print("red_eval extension NOT loaded; reason:", rb.reason())
+              raise SystemExit("compiled red_eval extension should be loaded")
           rb.set_backend_mock()
           rb.set_skill_enabled(3, False)
           assert rb.skill_enabled(3) is False, "skill toggle in Python failed"

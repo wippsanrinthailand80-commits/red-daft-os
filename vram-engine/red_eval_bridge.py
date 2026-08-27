@@ -45,6 +45,7 @@ __all__ = [
     "SKILL_NAMES",
     "skill_to_pool",
     "available",
+    "reason",
 ]
 
 # The 5 Core Vectors (Diagnostic Matrix)
@@ -256,6 +257,11 @@ def available() -> bool:
     if _MOD is None:
         _load()
     return _MOD is not None
+
+
+def reason() -> Optional[str]:
+    """Human-readable reason the compiled extension could not be loaded."""
+    return _REASON
 
 
 def set_backend_mock() -> None:
