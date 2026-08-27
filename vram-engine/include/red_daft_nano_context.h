@@ -184,8 +184,26 @@ private:
     size_t quant_cell_bytes_ = 0;      // packed storage for one (layer,head)
     size_t channel_bytes_    = 0;      // per-channel scale/zpt storage
 
+    // Real device (CUDA/HIP) backing — set when a GPU backend is compiled in.
     bool   device_resident_ = false;
-    void*  device_buf_ = nullptr;      // optional device mirror (CUDA/HIP)
+    void*  d_kv_   = nullptr;         // device buffer covering all packed KV cells
+    void*  d_stream_ = nullptr;       // device token-stream ring buffer
+#if defined(RD_NANO_BACKEND_CUDA)
+    cudaStream_t d_hstream_ = nullptr; // per-pool async stream (CUDA)
+#elif defined(RD_NANO_BACKEND_ROCM)
+    hipStream_t  d_hstream_ = nullptr; // per-pool async stream (HIP)
+#else
+    void*        d_hstream_ [[maybe_unused]] = nullptr;
+#endif
+    size_t d_kv_bytes_ = 0;           // allocated size of d_kv_
+    size_t d_ring_bytes_ = 0;         // allocated size of d_stream_
+
+    // Device HAL helpers (dual-HAL: CUDA / ROCm / CPU-fallback no-op)
+    bool dev_alloc(void** p, size_t bytes);
+    void dev_free(void* p);
+    bool dev_memcpy_htod(void* dst, const void* src, size_t bytes);
+    bool dev_memcpy_dtoh(void* dst, const void* src, size_t bytes);
+    bool dev_sync();
 
     // static quantization helpers
     static void quantize_into(const float* src, size_t n, NanoQuantType t,

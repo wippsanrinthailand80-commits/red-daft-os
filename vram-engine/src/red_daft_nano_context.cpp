@@ -48,6 +48,81 @@ size_t NanoPool::packed_bytes(size_t n, NanoQuantType t) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Device HAL — dual-HAL (CUDA / ROCm / CPU-fallback no-op)
+// These mirror the VRAM + LoRa engines' `#if CUDA / #elif ROCm / #else`
+// blocks so the Nano-Context Engine genuinely runs on NVIDIA and AMD GPUs.
+// ─────────────────────────────────────────────────────────────────────
+bool NanoPool::dev_alloc(void** p, size_t bytes) {
+    if (!bytes) { *p = nullptr; return true; }
+#if defined(RD_NANO_BACKEND_CUDA)
+    cudaError_t e = cudaMalloc(p, bytes);
+    if (e != cudaSuccess) {
+        std::fprintf(stderr, "[nano] cudaMalloc %zu failed: %s\n", bytes, cudaGetErrorString(e));
+        *p = nullptr;
+        return false;
+    }
+    return true;
+#elif defined(RD_NANO_BACKEND_ROCM)
+    hipError_t e = hipMalloc(p, bytes);
+    if (e != hipSuccess) {
+        std::fprintf(stderr, "[nano] hipMalloc %zu failed: %s\n", bytes, hipGetErrorString(e));
+        *p = nullptr;
+        return false;
+    }
+    return true;
+#else
+    *p = ::operator new(bytes);   // CPU fallback — malloc-backed device mirror
+    if (*p) std::memset(*p, 0, bytes);
+    return *p != nullptr;
+#endif
+}
+
+void NanoPool::dev_free(void* p) {
+    if (!p) return;
+#if defined(RD_NANO_BACKEND_CUDA)
+    cudaFree(p);
+#elif defined(RD_NANO_BACKEND_ROCM)
+    hipFree(p);
+#else
+    ::operator delete(p);
+#endif
+}
+
+bool NanoPool::dev_memcpy_htod(void* dst, const void* src, size_t bytes) {
+    if (!dst || !src || !bytes) return false;
+#if defined(RD_NANO_BACKEND_CUDA)
+    return cudaMemcpyAsync(dst, src, bytes, cudaMemcpyHostToDevice, d_hstream_) == cudaSuccess;
+#elif defined(RD_NANO_BACKEND_ROCM)
+    return hipMemcpyAsync(dst, src, bytes, hipMemcpyHostToDevice, d_hstream_) == hipSuccess;
+#else
+    std::memcpy(dst, src, bytes);
+    return true;
+#endif
+}
+
+bool NanoPool::dev_memcpy_dtoh(void* dst, const void* src, size_t bytes) {
+    if (!dst || !src || !bytes) return false;
+#if defined(RD_NANO_BACKEND_CUDA)
+    return cudaMemcpyAsync(dst, src, bytes, cudaMemcpyDeviceToHost, d_hstream_) == cudaSuccess;
+#elif defined(RD_NANO_BACKEND_ROCM)
+    return hipMemcpyAsync(dst, src, bytes, hipMemcpyDeviceToHost, d_hstream_) == hipSuccess;
+#else
+    std::memcpy(dst, src, bytes);
+    return true;
+#endif
+}
+
+bool NanoPool::dev_sync() {
+#if defined(RD_NANO_BACKEND_CUDA)
+    return d_hstream_ ? (cudaStreamSynchronize(d_hstream_) == cudaSuccess) : true;
+#elif defined(RD_NANO_BACKEND_ROCM)
+    return d_hstream_ ? (hipStreamSynchronize(d_hstream_) == hipSuccess) : true;
+#else
+    return true;
+#endif
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Quantize FP32 vector into packed INT4/INT2 with per-channel scale/zpt.
 // `channels` == number of scale groups (e.g. one per head-dim channel).
 // ─────────────────────────────────────────────────────────────────────
@@ -125,7 +200,7 @@ void NanoPool::dequantize_from(const uint8_t* packed, const float* scale,
 // NanoPool implementation
 // ─────────────────────────────────────────────────────────────────────
 NanoPool::NanoPool(uint64_t req_id, const NanoContextConfig& cfg)
-    : cfg_(cfg), request_id_(req_id), device_resident_(false), device_buf_(nullptr) {
+    : cfg_(cfg), request_id_(req_id), device_resident_(false) {
     // Storage for each (layer, head): packed bytes for K + packed bytes for V,
     // plus per-channel scale/zpt for K and V. Sized for max_tokens rows.
     const size_t elements = cfg_.max_tokens * cfg_.head_dim; // per layer per head
@@ -144,10 +219,40 @@ NanoPool::NanoPool(uint64_t req_id, const NanoContextConfig& cfg)
     const size_t ring_cap = std::max<size_t>(256, cfg_.stream_capacity / sizeof(float));
     ring_.assign(ring_cap, 0.f);
 
-    // Nano-Pools stay host-resident by default (capacity tier). This keeps the
-    // < 50 MB / active stream SLA and never touches VRAM Pool 0 weights.
-    device_resident_ = false;
-    device_buf_ = nullptr;
+    // ── Device backing (CUDA/ROCm) ──────────────────────────────────
+    // When a GPU backend is compiled in, mirror the KV cells and token
+    // stream on-device so load/store run as async device transfers. On CPU
+    // fallback these no-op (dev_alloc -> malloc) and device_resident_ stays
+    // false, keeping the < 50 MB / stream SLA intact.
+    bool want_device = cfg_.enable_device
+        #if defined(RD_NANO_BACKEND_CUDA) || defined(RD_NANO_BACKEND_ROCM)
+        && true
+        #else
+        && false
+        #endif
+        ;
+
+    if (want_device) {
+        // Total packed KV space across all layers/heads.
+        size_t total_kv = cfg_.kv_layers * cfg_.kv_heads * quant_cell_bytes_;
+        size_t rbytes = ring_.size() * sizeof(float);
+        d_kv_bytes_ = total_kv;
+        d_ring_bytes_ = rbytes;
+
+#if defined(RD_NANO_BACKEND_CUDA)
+        cudaStreamCreate(&d_hstream_);
+#elif defined(RD_NANO_BACKEND_ROCM)
+        hipStreamCreate(&d_hstream_);
+#endif
+
+        if (total_kv && dev_alloc(&d_kv_, total_kv) &&
+            rbytes && dev_alloc(&d_stream_, rbytes)) {
+            device_resident_ = true;
+        } else {
+            dev_free(d_kv_); d_kv_ = nullptr;
+            dev_free(d_stream_); d_stream_ = nullptr;
+        }
+    }
 }
 
 NanoPool::~NanoPool() {
@@ -158,11 +263,19 @@ NanoPool::~NanoPool() {
             if (c.zpt)   { delete[] c.zpt;   c.zpt = nullptr; }
         }
     cells_.clear();
-    if (device_buf_) {
-        // Frees via HAL (CPU fallback = free; device = cudaFree/hipFree)
-        delete[] static_cast<uint8_t*>(device_buf_);
-        device_buf_ = nullptr;
+    if (device_resident_) {
+        dev_sync();
+        dev_free(d_kv_);
+        dev_free(d_stream_);
     }
+#if defined(RD_NANO_BACKEND_CUDA)
+    if (d_hstream_) cudaStreamDestroy(d_hstream_);
+#elif defined(RD_NANO_BACKEND_ROCM)
+    if (d_hstream_) hipStreamDestroy(d_hstream_);
+#endif
+    d_kv_ = d_stream_ = nullptr;
+    d_kv_bytes_ = d_ring_bytes_ = 0;
+    device_resident_ = false;
 }
 
 bool NanoPool::kv_store(size_t layer, size_t head,
@@ -215,6 +328,17 @@ bool NanoPool::kv_store(size_t layer, size_t head,
     quant_.bytes_saved += n * sizeof(float) * 2 - cell.size;
     quant_.quant_ops += 1;
 
+    // Mirror the packed cell region to device (async on the pool stream).
+    if (device_resident_ && d_kv_) {
+        size_t cell_slot = (layer * cfg_.kv_heads + head) * quant_cell_bytes_;
+        uint8_t* dslot = static_cast<uint8_t*>(d_kv_) + cell_slot;
+        // quant_cell_bytes_ is sized by the default quant type; the actual
+        // pk+pv may be smaller — copy only pk+pv (the live bytes).
+        size_t live = pk + pv;
+        if (cell_slot + live <= d_kv_bytes_)
+            dev_memcpy_htod(dslot, cell.data, live);
+    }
+
     return true;
 }
 
@@ -225,6 +349,17 @@ bool NanoPool::kv_load(size_t layer, size_t head,
     const auto& cell = cells_[layer][head];
     if (!cell.data || !cell.scale || cell.seq_len < seq_tokens)
         return false;
+
+    // Pull the cell region back from device (async) before reading on host.
+    NanoPool* self = const_cast<NanoPool*>(this);
+    if (device_resident_ && d_kv_) {
+        size_t cell_slot = (layer * cfg_.kv_heads + head) * quant_cell_bytes_;
+        size_t live = cell.size;
+        uint8_t* dslot = static_cast<uint8_t*>(d_kv_) + cell_slot;
+        if (cell_slot + live <= d_kv_bytes_)
+            self->dev_memcpy_dtoh(cell.data, dslot, live);
+        self->dev_sync();   // host must read the synced bytes
+    }
 
     const size_t n = seq_tokens * cfg_.head_dim;
     const size_t nchannels = (n + 31) / 32;
@@ -261,6 +396,9 @@ bool NanoPool::stream_push(const float* tokens, size_t n) {
         }
         stream_.tokens_ingested++;
     }
+    // Mirror the token ring to device so downstream kernels can consume it.
+    if (device_resident_ && d_stream_ && !ring_.empty())
+        dev_memcpy_htod(d_stream_, ring_.data(), ring_.size() * sizeof(float));
     return true;
 }
 
@@ -291,6 +429,18 @@ void NanoPool::reset() {
     quant_  = NanoQuantStats{};
     stream_ = NanoStreamStats{};
     state_  = NanoPoolState::Free;
+    // Clear device mirrors so a recycled pool never serves stale context.
+    if (device_resident_) {
+        if (d_kv_ && d_kv_bytes_) {
+            std::vector<uint8_t> zero(d_kv_bytes_, 0);
+            dev_memcpy_htod(d_kv_, zero.data(), d_kv_bytes_);
+        }
+        if (d_stream_ && d_ring_bytes_) {
+            std::vector<float> zr(ring_.size(), 0.f);
+            dev_memcpy_htod(d_stream_, zr.data(), d_ring_bytes_);
+        }
+        dev_sync();
+    }
 }
 
 NanoPoolStats NanoPool::snapshot() const {
