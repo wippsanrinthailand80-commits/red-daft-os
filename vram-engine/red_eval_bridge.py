@@ -24,6 +24,8 @@ and verifiable anywhere, including CI and Kaggle/Colab CPU notebooks.
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
 import os
 import platform
