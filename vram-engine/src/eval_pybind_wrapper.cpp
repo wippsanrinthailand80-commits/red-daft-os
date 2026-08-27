@@ -80,13 +80,11 @@ PYBIND11_MODULE(red_eval, m) {
         eval_engine().run_diagnostics_async();
         eval_engine().await_completion(30000);
     }, "Run all enabled-skill probes synchronously (waits for completion).");
-    m.def("report_json", &eval_engine,
-          []() { return eval_engine().report_json(); },
+    m.def("report_json", []() { return eval_engine().report_json(); },
           "Run all probes and return the JSON diagnostic report.");
     m.def("report", []() { return eval_engine().report(); },
           "Return the DiagnosticReport (skills, totals).");
-    m.def("export_failed_dataset", &eval_engine,
-          [](const std::string& path) {
+    m.def("export_failed_dataset", [](const std::string& path) {
               return eval_engine().export_failed_dataset(
                   path.empty() ? "red_failed_dataset.jsonl" : path);
           }, py::arg("path"),
