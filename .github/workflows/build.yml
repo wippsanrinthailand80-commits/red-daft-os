@@ -130,7 +130,8 @@ jobs:
           assert rb.skill_enabled(3) is False, "skill toggle in Python failed"
           rb.run_diagnostics()
           d = rb.report_dict()
-          assert d["report"]["total_probes"] >= 8, "expected >=8 probes"
+          # skill 3 (StructuredOutput) is disabled above, gating its 1 probe
+          assert d["report"]["total_probes"] >= 7, "expected >=7 probes (one skill gated)"
           assert len(d["report"]["skills"]) == 5, "expected 5 skill vectors"
           n = rb.export_failed_dataset("/tmp/red_failed_dataset.jsonl")
           assert n >= 0, "exporter should return a count"
