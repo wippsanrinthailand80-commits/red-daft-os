@@ -372,6 +372,32 @@ PYBIND11_MODULE(red_daft_lora, m) {
         return get_swapper().swap_to_conversation_lora();
     }, "Hot-swap to Conversation/Language LoRa (pool 4).");
 
+    // ── SGMV weight patching ────────────────────────────────────────
+    m.def("apply_lora_weights", [](uint32_t id, py::object output, py::object input,
+                                   size_t batch_size) -> bool {
+        ensure_initialized();
+        // Take the caller's list, patch it in place, and return the result.
+        py::list out_list = output.cast<py::list>();
+        const size_t n = out_list.size();
+        std::vector<float> out(n);
+        for (size_t i = 0; i < n; ++i) out[i] = out_list[i].cast<float>();
+        auto inp = input.cast<std::vector<float>>();
+        bool ok = get_swapper().apply_lora_weights(id, out.data(), inp.data(), batch_size);
+        if (ok) {
+            for (size_t i = 0; i < n; ++i) out_list[i] = py::cast(out[i]);
+        }
+        return ok;
+    }, py::arg("id"), py::arg("output"), py::arg("input"), py::arg("batch_size") = 1,
+       R"pbdoc(
+        Apply LoRA weights (SGMV) on the fly: output = base_output + B @ A @ input.
+          id:         adapter ID
+          output:     list[float] of length out_feat — receives base_output + patch
+          input:      list[float] of length in_feat — the input activation
+          batch_size: number of rows (default 1)
+        Does NOT modify the base model weights in Pool 0.
+        Returns True on success.
+       )pbdoc");
+
     // ── Eviction ──────────────────────────────────────────────────
     m.def("evict_lru", [](){
         return get_swapper().evict_lru_lora();

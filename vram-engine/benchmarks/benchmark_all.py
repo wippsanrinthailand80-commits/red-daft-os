@@ -98,8 +98,8 @@ def run_vram_suite(rdv, budget_mib, iters, size_kib):
             continue
         off_times, pf_times = [], []
         for _ in range(min(iters, 20)):
-            t0 = _ns(); rdv.offload_to_ddr(h, None, False); t1 = _ns()
-            rdv.prefetch_to_vram(h, None, False); t2 = _ns()
+            t0 = _ns(); rdv.offload_to_ddr(h, False); t1 = _ns()
+            rdv.prefetch_to_vram(h, False); t2 = _ns()
             off_times.append(t1 - t0)
             pf_times.append(t2 - t1)
         rdv.deallocate(h)
@@ -120,8 +120,8 @@ def run_vram_suite(rdv, budget_mib, iters, size_kib):
         times = []
         for _ in range(min(iters, 20)):
             t0 = _ns()
-            rdv.offload_to_ddr(h, None, True)
-            rdv.prefetch_to_vram(h, None, True)
+            rdv.offload_to_ddr(h, True)
+            rdv.prefetch_to_vram(h, True)
             times.append(_ns() - t0)
         rdv.deallocate(h)
         s = sorted(times)
@@ -332,7 +332,7 @@ def run_combined_suite(rdv, lora_mod, rank, in_feat, out_feat, iters):
         t0 = _ns()
 
         # Allocate in VRAM pool
-        h = rdv.allocate_handle(0, size_bytes=64<<10, tag=f"pipe_{i}")
+        h = rdv.allocate_handle(0, 64<<10, 0, f"pipe_{i}")
 
         # Register LoRa adapter
         a_data = fill_data(a_elems, i * 7 + 1)

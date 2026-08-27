@@ -48,9 +48,9 @@ def bench_offload_prefetch(rdv, pool, size_bytes, iters):
     times = []
     for _ in range(iters):
         t0 = _ns()
-        rdv.offload_to_ddr(h, None, False)
+        rdv.offload_to_ddr(h, False)
         t1 = _ns()
-        rdv.prefetch_to_vram(h, None, False)
+        rdv.prefetch_to_vram(h, False)
         t2 = _ns()
         times.append((t1 - t0, t2 - t1))
     rdv.deallocate(h)
@@ -64,8 +64,8 @@ def bench_double_buffer(rdv, pool, size_bytes, iters):
     times = []
     for _ in range(iters):
         t0 = _ns()
-        rdv.offload_to_ddr(h, None, True)
-        rdv.prefetch_to_vram(h, None, True)
+        rdv.offload_to_ddr(h, True)
+        rdv.prefetch_to_vram(h, True)
         t1 = _ns()
         times.append(t1 - t0)
     rdv.deallocate(h)
