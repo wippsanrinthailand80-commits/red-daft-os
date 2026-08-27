@@ -82,6 +82,35 @@ jobs:
               -o /tmp/lora_test
           /tmp/lora_test
 
+      - name: Build + run VRAM + LoRa benchmarks (CPU fallback)
+        run: |
+          cd vram-engine
+          pip install pybind11
+          # Build Python extensions (CPU fallback, no CUDA/ROCm)
+          python3 setup.py build_ext --inplace 2>/dev/null || {
+            # Fallback: manual g++ compile if setup.py fails
+            PYBIND=$(python3 -c "import pybind11; print(pybind11.get_include())")
+            PYINC=$(python3 -c "from sysconfig import get_paths; print(get_paths()['include'])")
+            EXT=$(python3 -c "from sysconfig import get_config_var; print(get_config_var('EXT_SUFFIX'))")
+            g++ -std=c++20 -Wall -O3 -fPIC -shared \
+                -I include -I "$PYBIND" -I "$PYINC" \
+                src/red_daft_vram.cpp src/pybind_wrapper.cpp \
+                -o red_daft_vram${EXT}
+            g++ -std=c++20 -Wall -O3 -fPIC -shared \
+                -I include -I "$PYBIND" -I "$PYINC" \
+                src/red_daft_vram.cpp src/red_daft_lora_manager.cpp \
+                src/lora_pybind_wrapper.cpp \
+                -o red_daft_lora${EXT}
+          }
+          # Run unified benchmark suite (VRAM + LoRa + Combined)
+          python3 benchmarks/benchmark_all.py \
+            --budget 256 --iters 5 --rank 8 --in-feat 64 --out-feat 64 \
+            --json /tmp/benchmark_results.json --csv /tmp/benchmark_results.csv
+          echo "Benchmark results:"
+          cat /tmp/benchmark_results.csv | head -30
+          test -f /tmp/benchmark_results.json && echo "JSON output OK"
+          test -f /tmp/benchmark_results.csv && echo "CSV output OK"
+
   container-image:
     runs-on: ubuntu-latest
     steps:
