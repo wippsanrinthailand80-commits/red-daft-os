@@ -103,7 +103,8 @@ jobs:
                 -o red_daft_lora${EXT}
           }
           # Run unified benchmark suite (VRAM + LoRa + Combined)
-          python3 benchmarks/benchmark_all.py \
+          # .so files are built in vram-engine/; benchmark script is in benchmarks/
+          PYTHONPATH=. python3 benchmarks/benchmark_all.py \
             --budget 256 --iters 5 --rank 8 --in-feat 64 --out-feat 64 \
             --json /tmp/benchmark_results.json --csv /tmp/benchmark_results.csv
           echo "Benchmark results:"
