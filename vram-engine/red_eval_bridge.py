@@ -253,6 +253,8 @@ class _PyEmulator:
 # ─────────────────────────────────────────────────────────────────────
 def available() -> bool:
     """True if the compiled C++ extension is loaded (vs Python emulator)."""
+    if _MOD is None:
+        _load()
     return _MOD is not None
 
 
