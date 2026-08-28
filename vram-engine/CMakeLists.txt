@@ -22,12 +22,13 @@ elseif(USE_CUDA)
   endif()
 endif()
 
-# ── Core library (+ LoRa Brain Engine + Eval Engine) ────────────────
+# ── Core library (+ LoRa Brain Engine + Eval Engine + Burst Engine) ────────────────
 add_library(red_daft_vram STATIC
   src/red_daft_vram.cpp
   src/red_daft_lora_manager.cpp
   src/red_daft_nano_context.cpp
   src/red_eval_engine.cpp
+  src/red_burst_engine.cpp
 )
 target_include_directories(red_daft_vram PUBLIC include)
 target_compile_options(red_daft_vram PRIVATE -O3 -Wall -Wextra)
@@ -115,14 +116,22 @@ target_link_libraries(nano_test PRIVATE red_daft_vram)
 add_executable(eval_test tests/test_eval.cpp)
 target_link_libraries(eval_test PRIVATE red_daft_vram)
 
+add_executable(burst_test tests/test_burst.cpp)
+target_link_libraries(burst_test PRIVATE red_daft_vram)
+
 # red-eval CLI binary (interactive TUI / JSON reporter / exporter)
 add_executable(red_eval_cli src/red_eval_cli.cpp)
 target_link_libraries(red_eval_cli PRIVATE red_daft_vram)
 target_compile_options(red_eval_cli PRIVATE -O3 -Wall -Wextra)
 
+# red-burst CLI binary (ultra LoRA load mode)
+add_executable(red_burst_cli src/red_burst_cli.cpp)
+target_link_libraries(red_burst_cli PRIVATE red_daft_vram)
+target_compile_options(red_burst_cli PRIVATE -O3 -Wall -Wextra)
+
 # ── Install ────────────────────────────────────────────────────────────
 install(TARGETS red_daft_vram DESTINATION lib)
-install(FILES include/red_daft_vram.h include/red_daft_lora_manager.h include/red_daft_nano_context.h include/red_eval_engine.h DESTINATION include)
+install(FILES include/red_daft_vram.h include/red_daft_lora_manager.h include/red_daft_nano_context.h include/red_eval_engine.h include/red_burst_engine.h DESTINATION include)
 if(BUILD_PYBIND)
   install(TARGETS red_daft_vram_py DESTINATION .)
   install(TARGETS red_daft_nano_context_py DESTINATION .)

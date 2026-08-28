@@ -194,20 +194,26 @@ ai/             Modelfile, ollama-setup, daft-ai-guard v2 (+proxy, service)
 shell/          daft-shell (in-RAM execution)
 kernel/         daft-defmon LKM + ai-kernel/ (bare-metal Demo Box, 10 pools: HMM v3)
 vram-engine/    C++20 tiered manager: 10 pools, VRAM+DDR pinned, CUDA/HIP HAL, pybind11
-                 LoRa Brain Engine: async hot-swap, LRU eviction, SGMV patching
-                 Nano-Context Engine: INT4/INT2 KV, token stream ring, Nano-Pools
-                 Isolated Evaluation Engine (red-eval): 5 skill vectors, JSON report,
-                   --tune LoRa hot-swap TUI, red_failed_dataset.jsonl exporter
-                 include/red_daft_vram.h  include/red_daft_lora_manager.h
-                 include/red_daft_nano_context.h  include/red_eval_engine.h
-                 src/red_daft_vram.cpp  src/red_daft_lora_manager.cpp
-                 src/red_daft_nano_context.cpp  src/red_eval_engine.cpp
-                 src/pybind_wrapper.cpp  src/lora_pybind_wrapper.cpp
-                 src/nano_pybind_wrapper.cpp  src/eval_pybind_wrapper.cpp
-                 src/red_eval_cli.cpp  red_eval_bridge.py
-                 tests/test_vram.cpp  tests/test_lora.cpp  tests/test_nano.cpp
-                 tests/test_eval.cpp
-                 benchmarks/stress_3b.py  CMakeLists.txt  setup.py
+                  LoRa Brain Engine: async hot-swap, LRU eviction, SGMV patching
+                  Nano-Context Engine: INT4/INT2 KV, token stream ring, Nano-Pools
+                  Red-burst Ultra-LoRA Engine: 3s GPU spike, 3 streams (KV quantize /
+                    LoRA re-project / page align + pool alloc), watchdog,
+                    INT4/FP4/INT2 packing, tensor-core HAL (red_daft_gpu.h)
+                  Isolated Evaluation Engine (red-eval): 5 skill vectors, JSON report,
+                    --tune LoRa hot-swap TUI, red_failed_dataset.jsonl exporter
+                  include/red_daft_vram.h  include/red_daft_lora_manager.h
+                  include/red_daft_nano_context.h  include/red_eval_engine.h
+                  include/red_daft_gpu.h  include/red_burst_engine.h
+                  src/red_daft_vram.cpp  src/red_daft_lora_manager.cpp
+                  src/red_daft_nano_context.cpp  src/red_eval_engine.cpp
+                  src/red_burst_engine.cpp
+                  src/pybind_wrapper.cpp  src/lora_pybind_wrapper.cpp
+                  src/nano_pybind_wrapper.cpp  src/eval_pybind_wrapper.cpp
+                  src/red_eval_cli.cpp  src/red_burst_cli.cpp
+                  red_eval_bridge.py
+                  tests/test_vram.cpp  tests/test_lora.cpp  tests/test_nano.cpp
+                  tests/test_eval.cpp  tests/test_burst.cpp
+                  benchmarks/stress_3b.py  CMakeLists.txt  setup.py
  ux/             branding, MOTD, first-run ID card, installer
 docs/           architecture (this file)
 .github/        ci workflows (iso, build, gpu-compat, ai-kernel, rocm, cuda)

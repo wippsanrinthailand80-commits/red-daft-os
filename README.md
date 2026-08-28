@@ -28,6 +28,12 @@ modified versions / derivative OS forks requires prior written consent.
 - **Nano-Context Engine** — Ephemeral high-density context manager: base weights stay
   strictly FP16 in Pool 0 while all Input/Output context + KV Cache route to spawned
   Nano-Pools with FP16→INT4/INT2 KV quantization and a < 50 MB token stream ring.
+- **Red-burst Ultra-LoRA Engine** — 3-second compute spike (100% GPU utilization) to
+  dynamically quantize active LoRA adapters and KV cache into INT4/FP4/INT2 micro-buffers
+  routed into the 10-pool system. 3 parallel streams (KV quantize / LoRA re-project /
+  page align + pool alloc), isolated watchdog thread enforces strict 3.00s cap + thermal
+  throttling. Tensor-core (NVIDIA WMMA) / Matrix-core (AMD MFMA) abstraction via
+  `red_daft_gpu.h`. CLI: `redctl lora load --mode ultra`.
 - **Daft-Kernel** — hardened config (`build/configs/kernel-config.x86_64`):
   KSPP-aligned hardening + full GPU enablement + live-boot essentials.
 - **daft-pkg** — native `.daft` package manager (signed tar.zst + manifest).

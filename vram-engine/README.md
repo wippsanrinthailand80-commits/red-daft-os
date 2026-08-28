@@ -68,6 +68,11 @@ All device/host alloc, free, memcpy, streams go through `hal_*` wrappers in `src
 | `include/red_daft_vram.h` | Fully defined `enum class PoolType` (10), `MemoryBlock`, `TieredBuffer`, `MemoryPool`, `VramEngine`, `EngineConfig`, `PoolStats`, HAL types. C++20, thread-safe (`std::mutex`/`shared_mutex`). |
 | `src/red_daft_vram.cpp` | `initialize()`, `allocate()`, `deallocate()`, `prefetch_to_vram()`, `offload_to_ddr()`, `borrow_memory()`, `offload_lru_to_host()`, `print_pool_stats()`, double-buffering, borrowing engine. |
 | `src/pybind_wrapper.cpp` | `pybind11` module `red_daft_vram` + optional `torch/extension.h` integration + `stress_3b_benchmark()` + `allocate_torch()`. |
+| `include/red_daft_gpu.h` | Unified CUDA/ROCm HAL: `alloc/free/memcpy_async`, streams, WMMA⇄MFMA tensor-core hooks, CPU fallback. |
+| `include/red_burst_engine.h` | `RedBurstEngine`, `BurstConfig`, `BurstResult`, `BurstQuantType` (Int4/Int2/Fp4), 3-stream dispatchers, `burst_watchdog_timer()`. |
+| `src/red_burst_engine.cpp` | 3-second ultra burst implementation: KV quantize (S0), LoRA re-project (S1), page align + pool route (S2), zero-alloc staging. |
+| `src/red_burst_cli.cpp` | CLI binding: `red_burst_cli lora load --mode ultra [--duration] [--quant] [--json]`. |
+| `tests/test_burst.cpp` | Native C++ test: staging, 3-stream dispatch, watchdog strict-cap, pool routing, INT4/INT2/FP4 byte-size checks. |
 
 ---
 
